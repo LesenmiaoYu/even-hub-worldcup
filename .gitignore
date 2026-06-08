@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.DS_Store
+*.ehpk
+/tmp/
+scripts/_scratch/
+server/isports-docs.json
+server/isports-docs.txt
+/private/
