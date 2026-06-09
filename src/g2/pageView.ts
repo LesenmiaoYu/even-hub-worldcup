@@ -21,14 +21,14 @@ import { renderScorePng, renderVsPng, renderCodePng } from './pngImage'
  * then score + codes that share a bottom baseline at y=150. The text box
  * starts at y=180 — 30 px BELOW that baseline so codes/score "lift off"
  * the log instead of being glued to it. */
-const HEADER_X = 8,   HEADER_Y = 8,   HEADER_W = 420, HEADER_H = 56
-const PEN_X    = 436, PEN_Y    = 8,   PEN_W    = 132, PEN_H    = 44
+const HEADER_X = 8,   HEADER_Y = 8,   HEADER_W = 404, HEADER_H = 56
+const PEN_X    = 420, PEN_Y    = 8,   PEN_W    = 148, PEN_H    = 44
 const SCORE_X = 144,  SCORE_Y = 68,   SCORE_W = 288, SCORE_H = 82
 const CODE_W = 132,   CODE_H = 52,    CODE_Y = 98
 const HOME_CODE_X = 4
 const AWAY_CODE_X = 440
-const LOG_X = 8,      LOG_Y = 180,    LOG_W = 560,   LOG_H = 100
-const LOG_ROWS = 3
+const LOG_X = 8,      LOG_Y = 180,    LOG_W = 560,   LOG_H = 108
+const LOG_ROWS = 6
 
 /* Layer 1 — header row (stage-as-hero) + two leveled lists.
  * Left list = matchup (interactive). Right list = status/score (display-only). */
@@ -81,7 +81,10 @@ function eventLogLines(m: Match): string[] {
     while (lines.length < LOG_ROWS) lines.push('')
     return lines
   }
-  const events = [...m.events].reverse().slice(0, LOG_ROWS)
+  /* Show the whole match log, newest first. SDK clips at LOG_H so older
+   * events fall off the bottom naturally. LOG_ROWS is now just the
+   * empty-state padding floor (kickoff / "match underway"). */
+  const events = [...m.events].reverse()
   const lines = events.map(e => {
     const min = String(e.minute).padStart(2, ' ')
     const chip = (eventChip(e) || '   ').padEnd(4, ' ')
