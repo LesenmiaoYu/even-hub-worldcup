@@ -201,16 +201,24 @@ function sectionList(title: string, matches: Match[]): string {
 }
 
 export function renderBracketSvg(matches: Match[]): string {
-  const qfs = matches.filter(m => m.stage === 'QF')
-  const sfs = matches.filter(m => m.stage === 'SF')
-  const fin = matches.find(m => m.stage === 'F') ?? null
+  const gs    = matches.filter(m => m.stage === 'GS')
+  const r16   = matches.filter(m => m.stage === 'R16')
+  const qfs   = matches.filter(m => m.stage === 'QF')
+  const sfs   = matches.filter(m => m.stage === 'SF')
+  const fin   = matches.find(m => m.stage === 'F') ?? null
   const third = matches.find(m => m.stage === '3rd')
 
+  /* Tournament-flow order: GS → R16 → QF → SF → F → 3rd. The mini-tree
+   * at top still shows only the 4-QF→2-SF→F core; GS + R16 are sectioned
+   * card lists below, reusing the same bracketCard component as the
+   * later rounds so the visual style stays consistent. */
   return `
     <div class="bracket-page">
       <div class="br-mini-wrap">
         ${miniTree(qfs, sfs, fin)}
       </div>
+      ${sectionList(STAGE_LABEL.GS, gs)}
+      ${sectionList(STAGE_LABEL.R16, r16)}
       ${sectionList(STAGE_LABEL.QF, qfs)}
       ${sectionList(STAGE_LABEL.SF, sfs)}
       ${fin ? sectionList(STAGE_LABEL.F, [fin]) : ''}
