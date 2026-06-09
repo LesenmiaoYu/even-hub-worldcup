@@ -1,674 +1,1046 @@
-# World Cup — Even Hub App Spec
+# World Cup — Even Hub App Engineering Spec
 
-**App ID:** `com.even.worldcup`
-**Display name:** World Cup
-**Project root:** `~/CLAUDE_OUTPUT/apps/even-hub-worldcup`
-**Architecture doc (Feishu):** `docx/EsiLducSSoIJsRx6kN8ccyIlnse`
-**Status:** Demo / prototype. Mock data layer mirrors iSports response shape and timing. Swap to real backend = one-file change.
-
----
-
-## 1. Goal
-
-Glanceable World Cup matches on G2 + companion phone surface. Built as an Even Hub app (launched plugin), not a widget. Phone surface adds a per-match social voting feature that lives **only inside the per-match Detail view** (kept off the matches list to avoid clutter).
-
-## 2. Scope
-
-**In scope (v1 / demo)**
-- 8-team knockout-only mock tournament. Stages: QF (4) → SF (2) → 3rd-place playoff (1) → Final (1) = 8 matches.
-- **G2: two-layer IA.** Layer 1 = native LVGL list of all matches (Live → Upcoming → Past). Layer 2 = match detail.
-- **Phone:** Matches tab (Live + Upcoming) and Bracket tab (visual hybrid: mini-tree SVG + stage-grouped cards). Per-match Detail with events timeline and a vote bar that is **only** visible from inside Detail.
-- Light mode only on phone.
-- Mock data that mirrors iSports response shapes (`Match.eventId`, status enum 0/1/2/3/4/5/-1/-10/-11/-12/-13/-14, etc.).
-- Push-pattern state propagation (server "world" emits events; clients subscribe). Drop-in replacement: WS subscription to Even backend relay.
-
-**Out of scope (v1)**
-- Real iSports / Even backend wiring (mocked).
-- Notifications, widget surface, OS overlay, goal sounds, haptics.
-- Stats / H2H / Match Preview tabs from the widget reference Figma.
-- Lineup tab on phone (deferred to v2).
-- Localization beyond English.
-- Authentication.
+- **App ID**: `com.even.worldcup`
+- **Display name**: World Cup
+- **Version**: `0.1.0` (manifest `app.json`)
+- **Min SDK**: `0.0.10` (`@evenrealities/even_hub_sdk`)
+- **Repo**: `https://github.com/LesenmiaoYu/even-hub-worldcup`
+- **Project root**: `/Users/even/CLAUDE_OUTPUT/apps/even-hub-worldcup`
+- **Feishu canonical**: `[Ops] WorldCup Spec.md` (doc id `EsiLducSSoIJsRx6kN8ccyIlnse`)
+- **Status**: working alpha demo, push-relay backend running on Mac Mini via Tailscale
 
 ---
 
-## 3. Mock Tournament
+## 1. Overview
 
-8 teams, hard-coded bracket. Demo "now" anchor:
-- 4 QF matches: all FT (past). QF4 ESP vs POR finished 2-2 / POR 4-3 on pens — used to demo the penalty UI alongside SF1.
-- **SF1 (ARG vs FRA): FT** — 3-3 at 120', ARG win 4-2 on penalties (the Lusail scoreline). Seeded as the persistent shootout-display match: the glasses Layer 2 default focus lands here on app load so the top-right PEN block is immediately visible without any navigation. Final.home is pre-resolved to ARG.
-- SF2 (BRA vs POR): scheduled, kickoff in 2h
-- 3rd-place (NED vs GER): scheduled, kickoff in 25h
-- Final (ARG vs TBD): scheduled, kickoff in 49h — home pre-resolved from SF1; away resolves to "Winner SF2" once SF2 finishes
-- Live demo is triggered on demand via the "Start live game" debug button, which resets SF1 to minute 1 / 0-0 / empty events / state='live' and starts the scripted tick.
+World Cup is a two-surface EvenHub plugin: a phone webview (Even app shell, Flutter-hosted) and a G2 glasses display. It renders the World Cup 2026 bracket — Group Stage → Round of 16 → Quarterfinals → Semifinals → Final + 3rd-place — and one live match (SF1 ARG–FRA today) as a 1s-per-minute scripted tick driven by the backend.
 
-### Live tick script (SF1)
+The runtime split is server-authoritative: a Node `http` server (`server/index.ts`, port `3001`) owns the `Match[]` store, fans out deltas over SSE, and accepts a small POST `/command` debug plane. Both the phone webview and the G2 SDK client subscribe to the same `/events` stream — there is no separate "client store" mutation path in production flow (`src/state/store.ts:applyDelta`).
 
-Server-side timer advances 1 in-game minute per 4 real seconds (demo compression). Scripted events:
+Data provider is iSports REST (no native WebSocket). The adapter (`server/isports/`) is wired and tested but currently disabled by default (`ENABLE_ISPORTS=false` in `.env.example`); the in-process mock seed at `server/seed.ts:6-119` ships the demo. Switching is a one-env-var flip.
 
-| Min | Event | New state |
-|---|---|---|
-| 45+2 | Half-time whistle | HT 1-1 |
-| 46 | 2nd half starts | minute resumes |
-| 58 | Yellow card FRA (Camavinga) | last event updates |
-| 67 | Goal — Álvarez (ARG) | 2-1 |
-| 79 | Yellow card ARG (Otamendi) | — |
-| 90+4 | FT whistle | match moves to Past, Final.home resolves to "ARG" |
-
-After FT, app falls back to "no live match" — Layer 2 falls through to next-upcoming. Reopening app re-seeds from minute 42 (demo loop).
+Deploy: launchd on the Mac Mini (`com.even.wc-server`) keeps the server alive at `:3001`, reachable over Tailscale. Phone+glasses bundle ships as a single `.ehpk` (`worldcup-v0.1.0.ehpk`, 400 KB) built from the same Vite project that drives the phone webview.
 
 ---
 
-## 4. Information Architecture
+## 2. Architecture
 
-### 4.1 G2 glasses — two layers
-
-| Layer | Role | Container shape |
-|---|---|---|
-| **Layer 1** (boot default) | **Today's schedule.** Header row (stage-as-hero, mirrors phone) + two leveled lists: left = matchup (interactive, owns selection border + `listItemEvent`), right = status (display-only). Filters to live + upcoming within 24h (WC days carry up to 6 matches). Past matches do NOT appear here — they live on phone's Bracket tab. | 1 text header + 2 list containers = 3 total. Only the left list has `isEventCapture=1` and `isItemSelectBorderEn=1`. |
-| **Layer 2** | One-match detail. Works for any state (live / scheduled / ft). **No flags** — David rejected the mono-greyscale flag render as "cheap." Team codes widened (w=100) to fill the freed space. | 4 text + 1 image (= 5 total, exactly 1 `isEventCapture=1`). |
-
-### R1 input contract
-
-| Layer | Single tap | Double tap |
-|---|---|---|
-| **Layer 1** (list) | SDK fires `event.listEvent` (`List_ItemEvent`) with `eventType = CLICK_EVENT` + `currentSelectItemIndex`. Map index → match via `listMatchAtIndex(idx)` → enter Layer 2. | `event.listEvent.eventType = DOUBLE_CLICK_EVENT` (NOT `event.sysEvent` — the list container owns input). → `bridge.shutDownPageContainer(1)` system exit confirm dialog. |
-| **Layer 2** (detail) | **No-op.** | `event.sysEvent.eventType = DOUBLE_CLICK_EVENT` → return to Layer 1 via `rebuildPageContainer`. |
-
-> **SDK quirk (confirmed from `even_hub_sdk/dist/index.d.ts`):** A `ListContainerProperty` with `isEventCapture=1` consumes ALL input — single tap, double tap, scroll. The events arrive as `event.listEvent` of type `List_ItemEvent { containerID, currentSelectItemName, currentSelectItemIndex, eventType }`. The generic `event.sysEvent` channel is silent in this view. Earlier attempts at "tap → click" failed silently because we were listening on `(event as any).listItemEvent` (wrong key) and `event.sysEvent.eventType` (wrong channel). Wiring on `event.listEvent.eventType` is what makes both single-tap navigation and double-tap exit work.
-
-### 4.2 Phone (Even app webview)
-
-Top tab strip: `Matches | Bracket`.
-
-- **Matches tab**
-  - **Header (stage-as-hero):** title = current tournament stage, auto-derived as the EARLIEST non-FT stage in bracket order (Quarterfinals → Semifinals → 3rd-Place Playoff → Final); falls back to "Final" once everything is FT. Sub-line is live-state aware: `"{home} vs {away} live"` for a single live match, `"{n} matches live"` for multiple, `"Next kickoff in 2h"` for upcoming, `"Tournament complete"` once nothing's left. No fixed app name or product tagline.
-  - **Live** section: red-bordered card for the one currently-live match.
-  - **Upcoming** section: scheduled matches sorted by kickoff time.
-  - **Results** section: completed matches (most recent first). Added so playoff history is visible on the main tab without switching to Bracket. Bracket remains the canonical tree view; Results is the chronological list of past outcomes.
-  - **No vote chips on match rows.** Vote interaction is exclusively inside Detail.
-- **Bracket tab** — hybrid (Option C):
-  1. Compact non-interactive **mini-tree SVG** at the top showing QF → SF → F flow with right-angle connectors. Cells collapse to winner code on FT. Live cell red-bordered. TBD cells dashed + italic. (3rd-place omitted from the mini-tree — no tournament-tree relationship.)
-  2. **Stage-grouped single-row cards** below: Quarterfinals · Semifinals · Final · 3rd-Place Playoff. Each card is a **single horizontal row** (`[flag] HOME  score  AWAY [flag]  badge`) — denser than the prior two-row home/away split. Winner code bolded, loser muted, TBD shown inline as `"TBD vs TBD"`. **No lineage labels** ("Winner QF1 vs Winner QF2" etc.) — David read them as patronizing; the bracket layout speaks for itself.
-  - **Color coding**: FT cards get brand yellow `#FEF991` background (mini-tree cells too); Live keeps the red border; Upcoming + TBD share the default white surface (TBD only keeps a 0.7 row opacity for the placeholder).
-- **MatchDetail** (push-stack from Matches or Bracket)
-  - Header: flag + code + score + code + flag, status line, venue.
-  - **Vote surface** (see §6.3) — visible here only.
-  - Events timeline (newest first).
-
-**Phone chrome (Flutter-in-webview):** pinned no-zoom viewport, no text selection on chrome, no tap highlight, no overscroll bounce, Cupertino-style confirm/alert dialogs, bottom slide-in toasts.
-
----
-
-## 5. G2 Visual Design
-
-| Layer 1 — today's schedule |
-|---|
-| ![](docs/images/g2-layer-1.png) |
-
-**SF1 ARG vs FRA progression — 3-beat narrative of the same Layer 2 surface:**
-
-| Scheduled (kickoff in 2h, VS) | Live (post-Álvarez, 2-1 @ 67') | Full time (3-3, ARG win 4-2 pen) |
-|---|---|---|
-| ![](docs/images/g2-layer-2-vs.png) | ![](docs/images/g2-layer-2-live.png) | ![](docs/images/g2-layer-2-ft.png) |
-
-> Mockups above are PIL renders that mirror the runtime pipelines (`pixelAlphabet.ts` for codes + VS, `EvenTimeBigPixel` for digits, FK Grotesk Neue as a stand-in for the LVGL default font). The FT frame matches the `debugFinalWhistle()` scenario in §6.6 — Lusail-style 3-3 + shootout, ARG advance. Regenerate with `python3 scripts/render-g2-mockups.py` after any Layer 2 geometry change.
-
-
-Reference patterns from Even OS public design guidelines (Navigate-Walking, Dashboard-News HUDs): **corner-anchored info chips, hero in center, negative space, multi-column data**.
-
-### 5.1 Layer 1 container layout (576 × 288)
-
-Header row (stage-as-hero) + two leveled list containers. Lists share y / height / itemCount so rows line up across the page.
+### Component split
 
 ```
-+-------------------------------------------------------------+
-|  SEMIFINALS    2 today, 1 live                              |  <- text header (default LVGL font)
-|                                                             |
-|  +---------------------+  +-----------------------------+   |
-|  | ARG vs FRA          |  | LIVE 42  1-1                |   |  <- selected row (left list)
-|  | BRA vs POR          |  | 2h                          |   |
-|  +---------------------+  +-----------------------------+   |
-+-------------------------------------------------------------+
++---------------------+      +-----------------------+      +---------------------+
+|  G2 glasses (LVGL)  |      |  Phone webview        |      |  iSports REST       |
+|  via SDK bridge     |      |  (Even app Flutter)   |      |  api.isportsapi.com |
++----------+----------+      +-----------+-----------+      +----------+----------+
+           |  SDK calls                 |  fetch + EventSource         | HTTPS poll
+           |  (RebuildPageContainer,    |  (/events SSE, /command POST)| 12h/5s/60s
+           |   updateImageRawData, …)   |                              |
+           v                            v                              v
++--------------------------------------------------+   +---------------------------+
+|  Vite-built bundle (dist/) — index.html + JS     |   |  server/isports/ adapter  |
+|  src/main.ts boots both surfaces from one entry  |   |  client.ts / decode.ts /  |
+|  - mountPhone()    -> phone DOM                  |   |  transform.ts / teamMap   |
+|  - createStartUp() -> G2 page container          |   |  / poller.ts (3 loops)    |
+|  - openServerConnection() -> SSE consumer        |   +-------------+-------------+
++----------------------+---------------------------+                 |
+                       |  SSE: snapshot + delta                       v
+                       v                                  +-------------------------+
+              +------------------+                        |   server/state.ts       |
+              |  Node http server|<--- store.applyEvent --|   MatchStore (singleton)|
+              |  server/app.ts   |     store.upsertEvent  |   in-memory only        |
+              |  PORT=3001       |     store.patchLivescore                         |
+              +--------+---------+                        +-------------------------+
+                       |   POST /command (debug)
+                       v
+              start_live / mbappe_goal / sub / ping
 ```
 
-**Containers — 3 total:**
+### SSE topology
 
-| ID | Type | x,y,w,h | Content | EventCapture | SelectBorder |
-|---|---|---|---|---|---|
-| 10 | text | 8,8,560,28 | `"{STAGE}    {count} today[, N live]"` | 0 | — |
-| 11 | list | 8,48,280,232 | one item per today match: `listLeft(m)` → `"ARG vs FRA"` | **1** | 1 |
-| 12 | list | 296,48,272,232 | one item per today match: `listRight(m)` → status + score | 0 | 0 |
+- One stream `/events` (text/event-stream), all clients subscribe.
+- On connect: server pushes `event: snapshot` with full `{ matches: Match[] }`.
+- Every state mutation emits `event: delta` carrying a discriminated `Delta` payload (`server/state.ts:6-30`).
+- 15s `: ping\n\n` heartbeat per client, plus `retry: 2000` so EventSource auto-reconnects on drop (`server/sse.ts:7-18`).
+- No `id:` lines — clients cold-reconnect and re-hydrate from the next `snapshot`. Each `event-applied` and `reset` delta also carries the full post-change `Match` snapshot, so divergence resolves naturally.
+- CORS: `Access-Control-Allow-Origin: *` (explicitly deferred to "Phase 3" lockdown, `server/app.ts:8-15`).
 
-- **Today filter:** `listMatches()` = `[...store.getLive(), ...store.getUpcoming().filter(m => m.kickoffOffsetMin < 24*60)].slice(0, 6)`. WC days max out at 6 matches (group stage); knockout days are 1–4. Past matches do not appear — they're on phone Bracket only.
-- **Header text** (`listHeaderText()`): title = same earliest-non-FT-stage logic as the phone header. Sub line = `"{N} today"` / `"{N} today, {L} live"` / `"No matches today"`.
-- Left list owns input: SDK fires `event.listEvent` (typed `List_ItemEvent`) with `eventType` + `currentSelectItemIndex`. Map index → match via `listMatchAtIndex(idx)` → drill into Layer 2.
-- Right list is display-only — items render to the right side of canvas naturally because its container starts at x=296.
-- Row formatters in `src/g2/format.ts`:
-  - LEFT — `listLeft(m)`: `"{home} vs {away}"` (`"TBD vs TBD"` if unresolved).
-  - RIGHT — `listRight(m)`:
-    - LIVE: `"LIVE 42  1-1"`
-    - FT: `"FT  2-1"` (still formattable, but won't appear in today-filtered list)
-    - Scheduled: `kickoffLabel(m)` → `"2h"` / `"1d"`
+### Client render queue
 
-### 5.2 Layer 2 container layout (576 × 288)
+`src/main.ts:37-56` keeps a single-slot pending entry per view kind (`'list' | 'detail'`). Store change → enqueue → coalesce to latest → flush. Layer 2 (detail) flushes through `incrementalRenderDetail` which compares against a `last` cache (`main.ts:62-79`) and only re-paints the score / home-code / away-code images when their signatures changed; full rebuild is forced on matchId change or shootout-toggle.
 
-Two-row header strip, then score + codes that all "sit on" the event log — all three bottom edges meet at `y=180` (= log top edge). Score is taller than codes so it pokes further up; everything ends at the same baseline.
+### iSports adapter layer
 
-```
-+-------------------------------------------------------------+
-|  SEMIFINAL                                                   |  header row 1: stage (56 tall, fits 2 rows)
-|  SECOND HALF  42 MIN                                         |  header row 2: status
-|                                                              |
-|                +-------------------------+                   |
-|                |          1 : 1          |                   |   score band, top y=68
-|  +---------+   | EvenTimeBigPixel 80px   |   +---------+    |   codes top y=98, both
-|  |  ARG    |   +-------------------------+   |  FRA    |    |   end at y=150 baseline
-|  +---------+                                  +---------+    |
-|       30 px lift gap between y=150 and y=180                 |
-|  +--------------------------------------------------------+ |
-|  | 67' GOAL Alvarez (ARG)                                 | |   event log, y=180
-|  | 58' YEL Camavinga (FRA)                                | |
-|  | 41' GOAL Mbappe  (FRA)                                 | |
-|  +--------------------------------------------------------+ |
-+-------------------------------------------------------------+
-```
+The adapter sits behind the same store interface as the mock seed. It does NOT push deltas itself — it calls `store.upsertEvent` / `store.patchLivescore`, the store fans out. Three independent setInterval pollers (`server/isports/poller.ts`):
 
-**Containers — 5 total (2 text + 3 image, exactly 1 isEventCapture), + 1 optional PEN block:**
-
-| ID | Type | x,y,w,h | Content | EventCapture |
-|---|---|---|---|---|
-| 1 | text | 8,8,420,56 | `"{STAGE}\n{VERBOSE_STATUS}"` (plain LVGL font, 2 rows, left). Width shrunk from 560 → 420 to make room for the PEN block at the top right. | 0 |
-| 2 | text | 436,8,132,44 | **PEN indicator** — included ONLY when `hasShootout(m)` is true. 2-row content `"PEN\n{home}-{away}"` (e.g. `PEN\n4-2`). Top-right anchor; gives the shootout score persistent visibility independent of the header status row. | 0 |
-| 4 | image | 144,68,288,82 | Score image — EvenTimeBigPixel `"1 : 1"` (live/ft) or pixel-alphabet `VS` (scheduled); bottom at y=150 | 0 |
-| 3 | image | 4,98,132,52 | Home code — pixel-alphabet, **align=right** (letters lean toward score) | 0 |
-| 5 | image | 440,98,132,52 | Away code — pixel-alphabet, **align=left** (mirrors HOME about canvas axis x=287.5) | 0 |
-| 7 | text | 8,180,560,100 | 3-row event log, full width, bordered. 30 px gap above (y=150 → y=180) lifts score + codes "off" the log instead of glueing them to it. | **1** |
-
-> **Codes use a separate pixel-alphabet path, NOT EvenTimeBigPixel.** Earlier attempts (threshold=180/110/null) at rendering letters through EvenTimeBigPixel via canvas all came back blank — letter glyph strokes are too thin for browser canvas's text rasterizer to deposit enough luminance to survive 4-bit quantization. Reading `public/fonts/even-pixel-alphabet.svg` and stamping its lit cells directly to canvas (no font rendering step) bypasses the AA problem entirely. See §7.1 + `src/g2/pixelAlphabet.ts`.
-
-> **Header is a plain text container** (NOT a canvas-rendered image). Earlier image-based header introduced font-load races AND tripped the sim's 288×144 max-image-size validator. Plain text container with default LVGL font is what David asked for ("just use the normal font").
-
-> **No flags on G2.** The 16-shade greyscale flag render is technically correct and preserves value contrast (see §7.2), but reads as low-fidelity on the mono display vs the phone where the same SVGs render in full color. Flag pipeline (`renderFlagPng`, `getCachedFlag`, `preloadFlags`) is left in place for potential reinstatement later — currently only the phone consumes flag images.
-
-### 5.3 Update strategy
-
-| Trigger | API |
-|---|---|
-| App boot | `createStartUpPageContainer` (Layer 1) |
-| `listItemEvent` in Layer 1 | `rebuildPageContainer(buildDetailPage(selectedMatchId))` → Layer 2 |
-| Double-tap in Layer 2 | `rebuildPageContainer(buildListPage())` → Layer 1 |
-| Live minute tick (Layer 2, match.state === 'live') | `textContainerUpgrade(header)` + `textContainerUpgrade(event_log)` |
-| Goal event (Layer 2) | `updateImageRawData(score)` + `textContainerUpgrade(event_log)` |
-| FT or store change (Layer 1) | `rebuildPageContainer(buildListPage())` so live match flips into past row in place |
-
-`textContainerUpgrade` is flicker-free; `rebuildPageContainer` causes a brief flicker; `updateImageRawData` is in-place per container.
-
-### 5.4 Brand on G2
-
-- Monochrome green only. ER OS Green `#3CFA44` for lit pixels.
-- No color flags (rendered as monochrome binary patterns). No team logos.
-- Three-letter FIFA codes for team identity.
-- ALL strings ASCII-sanitized via `asciiName()` — LVGL fallback renders unsupported glyphs (`é`, smart quotes, em-dashes, middle-dots) as vertical bars.
-
-### 5.5 Simulator validation + SDK constraints (discovered through pain)
-
-- **Image container max size: 288 × 144.** Anything larger fails `CreateStartUpPageContainer validation`. (Header 288×36 OK; score 288×120 OK; flags 72×40 OK.)
-- **`ListContainerProperty` with `isEventCapture=1` consumes ALL input.** Events arrive on `event.listEvent` (typed `List_ItemEvent`) — NOT `event.sysEvent`. Read `event.listEvent.eventType` against `OsEventTypeList` and `event.listEvent.currentSelectItemIndex` to route by row.
-- **List event payload key is `listEvent`, not `listItemEvent`.** Earlier `(event as any).listItemEvent` reads silently fail. The SDK envelope is `EvenHubEvent { listEvent?, textEvent?, sysEvent?, audioEvent?, jsonData? }`.
-- **Multiple list containers on one page is fine.** Only ONE should have `isEventCapture=1`; the others render display-only and stay row-aligned by matching `itemCount` + `yPosition` + `height`.
-- **HMR works against the running sim.** Vite's `page reload` events drive the sim's webview; killing the sim is rarely necessary. Only kill if the sim itself crashes or its app-data cache is poisoned.
-
----
-
-## 6. Phone Visual Design
-
-| Matches | Bracket | Detail (vote bar) | Goal toast |
+| Loop | Endpoint | Cadence | Writes via |
 |---|---|---|---|
-| ![](docs/images/phone-matches.png) | ![](docs/images/phone-bracket.png) | ![](docs/images/phone-detail.png) | ![](docs/images/phone-toast-goal.png) |
-
-> Phone screenshots are captured manually from the running phone surface (no headless browser in the toolchain — drop fresh ones into `docs/images/` after a UI change). The four reference shots above cover the canonical states: matches list with live + upcoming + results, bracket tab (mini-tree + stage cards), per-match detail with vote pill / bar, and the yellow goal toast in flight.
-
-Even Design Library 3.0 tokens, light theme. No emojis anywhere.
-
-### 6.1 Tokens
-
-- Surfaces: `#FFFFFF` (page), `#F2F2F2` (card), `#E5E5E5` (nested)
-- Text: `#222222` (primary), `#737373` (secondary), `#999999` (tertiary)
-- Live signal: `#FF5454`
-- Brand yellow: `#FEF991` — used on **goal toast** (`.toast.toast-goal`); FT bracket cards used to use this, now switched to `--neutral-200` gray (David: "too bright")
-- Cards: white surface, elev-low shadow, 12px radius, 16px padding
-- 8-pt spacing grid
-
-### 6.2 Typography
-
-- **FK Grotesk Neue** loaded locally via `@font-face` (Inter / system fallback).
-- **Even Roster Grotesk** alt for Latin/Cyrillic/Greek.
-- **Even Signature** available for special English moments.
-- Negative letter-spacing throughout (signature Even tracking).
-- Type scale follows Design Library 3.0.
-- Hard rule: **pixel fonts are OS-only**, never on phone UI. See `reference_even_font_usage.md` in memory.
-
-### 6.3 Per-match Support Vote (Detail-only)
-
-Match-based (not team-based) — every match has its own poll. **Visible only inside the per-match Detail view**, not on the matches list rows.
-
-**For live + scheduled matches** — initial state: two chip buttons:
-```
-[VOTE ARG]   [VOTE FRA]
-```
-
-**After user taps a side** — chips fade out (200ms) and collapse into a horizontal split bar (220ms fade-in, 320ms width transition):
-```
-████████████ 62% ARG │ FRA 38% ████████
-```
-- Single horizontal bar (28px tall); home left, 1px white divider, away right.
-- User's pick: chosen side flips to `var(--er-black)` background with white text and a small dot marker.
-- Single-vote-per-match-per-session (tapping again silently no-ops).
-- Inline label / tooltip: "You voted ARG".
-
-**For past (FT) matches** — frozen final bar; no chips ever shown; uses muted `var(--surface-1)` palette.
-
-**Persistence (mock):**
-- `localStorage['vote.{matchId}']` = `'home' | 'away'` (user's pick).
-- `localStorage['tally.{matchId}']` = `"home:away"` raw counts including baseline.
-- Baseline 100–500 votes per side, seeded deterministically from `matchId` via FNV-1a + xorshift32 so percentages are stable across renders/reloads.
-
-**API shim (one place to swap):**
-```ts
-async function castVote(matchId: string, side: 'home'|'away'): Promise<VoteTally>
-async function getTally(matchId: string): Promise<VoteTally>
-```
-v2 real backend: `POST /api/matches/{id}/vote` → `{ home, away, total }`. Subscribe via WS for live percentage updates.
-
-### 6.4 Bracket tab — hybrid (Option C)
-
-1. **Compact mini-tree SVG** (viewBox 200×130, scales to fit). QF → SF → F columns with right-angle polyline connectors. FT cells collapse to a single bold winner code; live cell has a red stroke + dot; TBD cells dashed + italic; **FT cells get brand-yellow fill** (`mt-done` class).
-2. **Stage-grouped card list** below: Quarterfinals / Semifinals / Final / 3rd-Place Playoff. SF / F / 3rd-place cards carry a lineage hint ("Winner QF1 vs Winner QF2") so TBD slots read sensibly.
-3. **Color rule** (single convention across mini-tree SVG cells + stage card list):
-
-   | State | Mini-tree (`.mt-cell.*`) | Card (`.br-card-*`) |
-   |---|---|---|
-   | Live | `fill=surface-0`, `stroke=--live` (red) | red box-shadow (`--live`) |
-   | FT (done) | `fill=--neutral-200`, soft gray | `background=--neutral-200`, soft gray |
-   | Upcoming + TBD | default white surface (TBD = 0.7 opacity on rows) | default white surface (TBD = 0.7 opacity on rows) |
-
-   Yellow used to mark `done` — David flagged "too bright"; neutral gray reads as "settled, retired into past" without competing with the live red.
-
-### 6.6 Debug bar (demo only)
-
-Pinned at the bottom of the phone surface (`.debug-bar` in `src/style.css`, handlers in `src/phone/debug.ts`):
-
-| Button | Action |
-|---|---|
-| **Start live game** | Resets SF1 to a fresh kickoff — `state='live'`, `minute=1`, `0–0`, empty event log — then restarts the scripted live tick. Idempotent: hitting it again rewinds to minute 1. |
-| **Mbappé scores** | Fires a goal event for FRA (away side of SF1) at the current minute via `store.applyEvent`. Same path the scripted tick uses, so the yellow goal toast pops automatically through the existing `detectGoals` subscriber. |
-
-> Removed buttons: **"Penalty (ARG)"** (conflated awarded-vs-scored — every tap added 1 to home, which is wrong; if we ever need an in-game penalty awarded event it should be its own `pen` event type that does NOT carry a scoreDelta) and **"Final 3-3 (ARG 4-2 pen)"** (the shootout UI is demoed via seed data — see below — so no debug trigger is needed).
-
-> **Shootout demo in seed data**: QF4 (ESP vs POR) is now seeded as a 2-2 regulation result resolved 4-3 to POR on penalties (`homePenalty=3, awayPenalty=4`). This makes the penalty rendering visible on initial app load — Results section on phone matches list, bracket card + mini-tree, and (when drilled into) the Layer 2 PEN indicator on glasses — without any debug interaction.
-
-Strip the bar + handlers + `src/phone/debug.ts` when wiring real backend data. Added a public `store.touch()` so the start-live handler can mutate match fields directly (state, minute, score, events) and re-emit a UI notify without faking a synthetic event.
-
-### 6.5 Chrome (Flutter-in-webview)
-
-- Viewport: `width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no`
-- `body { touch-action: manipulation; overscroll-behavior: none; }`
-- `* { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; }`
-- Cupertino confirm/alert dialogs (`src/phone/dialog.ts`)
-- Bottom-center slide-in toasts (`src/phone/toast.ts`)
+| schedule | `GET /schedule?leagueId=1572` | 12h | `store.replaceAll(matches)` |
+| livescores | `GET /livescores/changes` | 5s | `store.patchLivescore(matchId, patch)` |
+| events | `GET /events` | 60s | `store.upsertEvent(matchId, ev)` |
 
 ---
 
-## 7. Asset & Font Pipeline
+## 3. Data Model
 
-### 7.1 Score + team codes — two pipelines, one dot-matrix aesthetic
+All types live in `src/types.ts` (client) and `server/types.ts` (server mirror). The two files are kept in lockstep manually.
 
-Layer 2 uses two different rasterizers that share the same look:
+### Team and stage
 
-**Pipeline A — EvenTimeBigPixel + threshold (`src/g2/pngImage.ts:renderScorePng`)** for the score digits + colon.
+```ts
+// src/types.ts
+export type TeamCode =
+  // CONCACAF (6)
+  | 'USA' | 'MEX' | 'CAN' | 'JAM' | 'CRC' | 'PAN'
+  // CONMEBOL (6)
+  | 'ARG' | 'BRA' | 'URU' | 'COL' | 'ECU' | 'PAR'
+  // UEFA (20)
+  | 'ESP' | 'FRA' | 'ENG' | 'GER' | 'ITA' | 'NED' | 'POR' | 'BEL'
+  | 'CRO' | 'SWI' | 'DEN' | 'POL' | 'AUT' | 'CZE' | 'SRB' | 'NOR'
+  | 'BIH' | 'SCO' | 'SWE' | 'TUR'
+  // CAF (12)
+  | 'MAR' | 'SEN' | 'EGY' | 'NGA' | 'ALG' | 'TUN' | 'CMR' | 'GHA'
+  | 'CIV' | 'CPV' | 'COD' | 'RSA'
+  // AFC (10)
+  | 'JPN' | 'KOR' | 'IRN' | 'KSA' | 'AUS' | 'QAT' | 'UAE' | 'IRQ' | 'JOR' | 'UZB'
+  // OFC + playoffs (4)
+  | 'NZL' | 'BOL' | 'HAI' | 'CUW';
 
-1. Await `PIXEL_FONT_LOADED` (FontFace registration for `Even Time Big Pixel`).
-2. Walk `sizes` (on-grid for `unitsPerEm=800`); pick the largest size whose rendered text fits in `w - 8`. Score uses `[80, 64, 50, 32, 25]`.
-3. Render `text` centered, white-on-black, `imageSmoothingEnabled=false`, baseline=middle.
-4. **Threshold post-process** (critical): browser canvas's text rasterizer always anti-aliases, which fills the dot-matrix font's intentional gaps with intermediate greys; the 4-bit quantizer then rounds those greys to "solid." Walk pixels, set lum ≥ 180 → 255, else 0. This restores the discrete on/off pattern the font was designed for. PIL renders this without AA — thresholding is how we mimic that path in the browser.
-5. Encode 4-bit greyscale via `canvasTo16IndexedPng()`. All pixels are extreme (0 or 255), so they collapse to palette entries 0 / 15 cleanly.
+export type Stage = 'QF' | 'SF' | '3rd' | 'F' | 'GS' | 'R16';
 
-**Pipeline B — Pixel-alphabet SVG atlas (`src/g2/pixelAlphabet.ts`)** for team codes + the `VS` placeholder.
+export type MatchState = 'scheduled' | 'live' | 'ft';
 
-Why a second pipeline: rendering LETTERS through Pipeline A consistently came back blank. Letter glyph strokes in EvenTimeBigPixel are thinner than its digit/colon glyphs; canvas's text rasterizer can't deposit enough luminance for them to clear threshold=180, and dropping the threshold lets AA fuzz win and the 4-bit quantizer collapses everything to "off." Tried thresholds 180, 110, null — all blank.
+export interface Team {
+  code: TeamCode;
+  name: string;
+  flag: string;
+}
+```
 
-Workaround:
+### Events
 
-1. `public/fonts/even-pixel-alphabet.svg` is an A–Z atlas where each letter lives in `<g id="X">` with `<rect>` cells (`20×20` on a `30px` stride). Authored as ground-truth pixel art — no font rendering involved.
-2. On first call, `pixelAlphabet.ts` fetches the SVG, parses each glyph into a normalized `{cols, rows, cells: [col, row][]}` grid, and caches in-process. Subsequent calls are synchronous (after the first fetch).
-3. `renderPixelAlphabetPng(text, w, h)` auto-picks the largest stride (`dot+gap`) that fits the string in `w×h` from candidates `[4+1, 3+1, 2+1, 1+1, 1+0]`. For `140×80` codes the picked stride is typically `3` (dot=2, gap=1) — matches the SVG's own 20:10 cell:gap ratio.
-4. The renderer stamps `ctx.fillRect(dot×dot)` for each lit cell. No canvas font rendering step → no AA → no luminance loss.
-5. Encoded via `canvasTo16IndexedPng()` same as Pipeline A.
+```ts
+export type EventType = 'goal' | 'yellow' | 'red' | 'ht' | 'ft' | 'sub';
+export type Side = 'home' | 'away';
 
-`preloadAlphabet()` is called fire-and-forget at boot so the first Layer 2 paint isn't blocked on the SVG fetch.
+export interface MatchEvent {
+  eventId?: string;       // iSports dedupe key, undefined for mock-generated
+  minute: number;
+  type: EventType;
+  side: Side | null;      // null for HT/FT meta events
+  player?: string;        // OFF player on subs
+  playerIn?: string;      // ON player on subs only
+}
+```
 
-**Score uses `:` not `-`, with spaces.** EvenTimeBigPixel covers digits AND colon AND space natively (`0-9 A-Z a-z space colon`); it has no hyphen glyph. `scoreText(m)` returns `"{home} : {away}"` (padded both sides) — the font renders the separator with proper visual weight (twin clock-style dots) and the padding spaces give the colon visible breathing room.
+`playerIn` is only set when `type === 'sub'`. The shape mirrors iSports' single-event substitution model — no second event for the player coming on.
 
-**VS (scheduled / unresolved matches)** goes through Pipeline B for style consistency with the team codes. Earlier FK Grotesk Neue 900 fallback worked but broke the dot-matrix look. The VS render is PINNED to `{dot: 2, gap: 1}` (stride=3) so the letter height (21 rows × 3 − 1 = 62 px) matches the digit cap height when the score picker lands on fontPx=80 (620/800 × 80 ≈ 62 px). Without the pin, the picker would chase the largest stride that fits 288×120 — stride=5, letter height 104, ~1.7× the digit height — which David flagged as "outrageously big".
+### iSports status (raw enum)
 
-The 7-segment hand-drawn approach is gone. The LVGL-text-container fallback for codes is gone.
+```ts
+export type IsportsStatus =
+  | 0 | 1 | 2 | 3 | 4 | 5    // scheduled / 1H / HT / 2H / ET / pens
+  | -1                       // finished
+  | -10 | -11 | -12 | -13 | -14;  // cancelled / TBD / terminated / interrupted / postponed
+```
 
-### 7.2 Flag image — 16-shade greyscale (inverted)
+### Match
 
-Pipeline (`src/g2/pngImage.ts:renderFlagPng()`):
+```ts
+export interface Match {
+  id: string;
+  stage: Stage;
+  home: TeamCode | null;
+  away: TeamCode | null;
+  homeScore: number | null;
+  awayScore: number | null;
+  homePenalty: number | null;   // ONLY non-null on shootout
+  awayPenalty: number | null;   // ONLY non-null on shootout
+  minute: number | null;
+  state: MatchState;
+  kickoffOffsetMin: number;     // minutes from "now" for scheduled rows
+  events: MatchEvent[];
+  venue?: string;
+  resolvesFrom?: { home?: string; away?: string };  // upstream match IDs
+}
+```
 
-1. Load colored SVG flag from `public/flags/{code}.svg`.
-2. Render at 2× target size with smoothing.
-3. Downsample to target size with high-quality smoothing.
-4. **Inverted 16-shade greyscale** via `canvasTo16IndexedPng(canvas, { invert: true })`:
-   - For each pixel, compute luminance (Rec.601: `0.299R + 0.587G + 0.114B`).
-   - Encode as `idx = round((255 − lum) / 17)` → 0..15.
-   - Multiply back by 17 to get a clean palette colour for UPNG to quantize.
-5. Cache per-flag-per-size.
+### Scripted tick (mock only)
 
-**Why inverted greyscale beats the prior binary threshold:** On a mono-green display, "lit" pixel = bright green. White flag fields should read as OFF, dark colored shapes should LIGHT UP. Binary threshold collapsed everything to lit/off — France's red/white/blue became three solid blocks, Argentina's pale-blue/white became a near-blank. With 16-shade inverted greyscale, dark navy reads brighter than pale blue, which reads brighter than white — the flag's value structure survives onto the mono display.
+```ts
+export interface ScriptedTick {
+  minute: number;
+  event: MatchEvent;
+  scoreDelta?: { home?: number; away?: number };
+}
 
-**Currently consumed by phone surface only.** Flags were removed from G2 Layer 2 (David: "looks cheap"). `preloadFlags` / `getCachedFlag` exports remain for potential reinstatement, but no G2 boot path calls them.
+export interface LiveTickConfig {
+  matchId: string;
+  msPerMinute: number;
+  script: ScriptedTick[];
+}
+```
 
-`canvasToBinaryPng()` was removed; `assembleScorePng()` was removed (font-based score path dead).
+`server/seed.ts:122-185` holds the SF1 ARG–FRA tick script: 1000 ms per simulated minute, scoring + cards + HT + FT.
 
-### 7.6 Flag assets — full 58-team WC 2026 coverage
+### SSE delta
 
-`public/flags/{fifa-lowercase}.svg` covers all 58 WC 2026 teams in our `TeamCode` union. The original mock was authored against 48 publicly-projected qualifiers; per David's #1A decision after the iSports adapter landed, we expanded by 10 nations to cover iSports' actual projected bracket (BIH, CPV, CUW, COD, JOR, SCO, RSA, SWE, TUR, UZB). With this expansion the iSports `/schedule?leagueId=1572` adapter now hydrates 72 of the 104 published matches (the remaining 32 are R32 placeholders like `"73 WIN"` / `"[A3]/[B3]/…"` that can't resolve until the group stage runs).
+```ts
+// src/state/serverClient.ts:7-30 (mirrors server/state.ts)
+export type Delta =
+  | { type: 'event-applied'; matchId: string; event: MatchEvent;
+      scoreDelta?: { home?: number; away?: number }; match: Match }
+  | { type: 'minute'; matchId: string; minute: number }
+  | { type: 'bracket-resolved'; matchId: string;
+      home: TeamCode | null; away: TeamCode | null }
+  | { type: 'reset'; matchId: string; match: Match };
 
-Source: [`flag-icons`](https://github.com/lipis/flag-icons) (Apache-2.0). Copied via `scripts/copy-flags.sh`, which maps FIFA-3 codes (e.g. `ARG`, `KSA`, `CIV`) to the package's ISO-2 filenames (`ar`, `sa`, `ci`). England + Scotland are special cases — they use `gb-eng.svg` (St George's Cross) and `gb-sct.svg` (Saltire) since they're sub-national identities in the underlying ISO.
+export interface SnapshotMessage { matches: Match[]; }
+```
 
-Coverage breakdown (matches `TeamCode` union in `src/types.ts` and the registry in `src/mock/teams.ts`):
+---
+
+## 4. Glasses UI
+
+G2 canvas: 576 × 288. Mono ER OS Green `#3CFA44` only. ASCII-sanitized via `asciiName()` (`src/g2/format.ts:92`) to avoid LVGL font fallback boxes. Two screens, switched by R1 click / phone-driven nav.
+
+Reference mockups (PIL-rendered, deterministic):
+
+- `docs/images/g2-layer-1.png` — Layer 1 schedule list
+- `docs/images/g2-layer-2-vs.png` — Layer 2 pre-kickoff (VS placeholder)
+- `docs/images/g2-layer-2-live.png` — Layer 2 live (score + minute)
+- `docs/images/g2-layer-2-ft.png` — Layer 2 FT with shootout PEN block
+
+### 4.1 Layer 1 — today's schedule (`buildListPage`, `src/g2/pageView.ts:346`)
+
+Three containers:
+
+| ID | Name | Type | Geometry | Notes |
+|---|---|---|---|---|
+| 10 | `lhead` | text | 8,8,560×28 | `listHeaderText()` — title from earliest non-FT stage in `[QF,SF,3rd,F]`; subtitle = `"{count} today, {liveCount} live"` |
+| 11 | `lleft` | list | 8,48,280×232 | `listLeft(m) = "HOME vs AWAY"`; `isEventCapture=1`, selection border on |
+| 12 | `lright` | list | 296,48,272×232 | `listRight(m)` — see below; `isEventCapture=0`, no selection border |
+
+`listRight(m)` (`src/g2/format.ts:132-139`):
+
+- live → `"LIVE {min}  H-A"`
+- ft + shootout → `"FT H-A (Hp-Ap)"`
+- ft → `"FT  H-A"`
+- scheduled → kickoff offset label (`Kicks off in {…}`)
+
+`listMatches()` (`pageView.ts:316-320`) = `live + upcoming` filtered to `kickoffOffsetMin < 24*60`, sliced to 6 (WC group-stage day cap). Empty state: left = `"No matches today"`, right = `""`.
+
+### 4.2 Layer 2 — match detail (`buildDetailPage`, `src/g2/pageView.ts:205`)
+
+| ID | Name | Type | Geometry | Notes |
+|---|---|---|---|---|
+| 1 | `header` | text | 8,8,420×56 | two-row: stage on row 1, verbose status on row 2; `\n` preserved by `asciiName` |
+| 2 | `pen` | text | 436,8,132×44 | `"PEN\nH-A"`; included only when `hasShootout(m)` |
+| 3 | `hcode` | image | 4,98,132×52 | `renderCodePng(asciiName(home), …, 'home')` (right-aligned) |
+| 4 | `score` | image | 144,68,288×82 | `renderScorePng` for live/ft, `renderVsPng` otherwise |
+| 5 | `acode` | image | 440,98,132×52 | `renderCodePng(…, 'away')` (left-aligned) |
+| 7 | `elog` | text | 8,180,560×100 | `LOG_ROWS=3`, border w=1 color=6 radius=4 padding=8, `isEventCapture=1` |
+
+`eventLogLines` (`pageView.ts:73-103`):
+
+- scheduled → `Kicks off in {m|h|d}` padded to 3 rows
+- live/ft → reversed `events.slice(0,3)`, each `${min}'  {chip}  {who}`; subs render `OUT > IN (side)`
+
+### 4.3 Penalty handling
+
+The top-right `PEN\nH-A` text container is the canonical UI signal for a shootout. `hasShootout(m)` is true when both `homePenalty` and `awayPenalty` are non-null. The block:
+
+- builder: `penIndicatorContainer` (`pageView.ts:156-164`)
+- upgrade path: `makePenIndicatorUpgrade` (`pageView.ts:294-302`)
+- structural rebuild trigger: `shootoutNow !== last.shootoutPresent` → `fullRenderDetail` (`main.ts:122-126`)
+
+PEN is NOT mixed into the header line. Header stays clean (`format.ts:44-61` comment).
+
+`scoreText` for the score image is `"H : A"` with spaces around the colon to match EvenTimeBigPixel's pixel-grid kerning (`format.ts:63-68`).
+
+### 4.4 Update strategy
+
+| Trigger | API call |
+|---|---|
+| First mount / view switch / matchId change / shootout toggle | `bridge.createStartUpPageContainer` (boot) or `RebuildPageContainer` (re-mount) + 3× `updateImageRawData` |
+| Header text drift only | `textContainerUpgrade(makeHeaderTextUpgrade)` |
+| Event log delta | `textContainerUpgrade(makeEventLogUpgrade)` |
+| Score image sig change | `updateImageRawData('score', …)` |
+| Home/away code sig change | `updateImageRawData('hcode'/'acode', …)` |
+| PEN block text change | `textContainerUpgrade(makePenIndicatorUpgrade)` |
+
+### 4.5 Font / image pipelines
+
+Three pipelines, all output 4-bit indexed PNG via UPNG (16 grey shades, `idx * 17` quantization → `canvasTo16IndexedPng`, `src/g2/pngImage.ts:34-51`):
+
+**1. Score digits / colon — EvenTimeBigPixel + threshold** (`renderPixelTextPng`, `pngImage.ts:119-168`)
+- FontFace loaded once (`PIXEL_FONT_LOADED`, lines 16-21).
+- Sizes tried `[80, 64, 50, 40, 32]`; largest that fits `w-8`.
+- `imageSmoothingEnabled=false`, baseline `alphabetic` at `y=h` (bottom-aligned, exploits typoDescender=0).
+- Luminance threshold at 180 after render — restores dot-matrix gaps that browser AA filled in.
+
+**2. VS placeholder + team codes — pixel-alphabet SVG stamping** (`renderPixelAlphabetPng`, `src/g2/pixelAlphabet.ts:134-201`)
+- Parses `/fonts/even-pixel-alphabet.svg` once (`loadGlyphs`, 30-69) into `Map<char, Glyph>` of `[col,row]` cells, A–Z only.
+- Auto-picks stride from `[[4,1],[3,1],[2,1],[1,1],[1,0]]` (first that fits with 4px pad).
+- Per glyph: `ctx.fillRect(offX + (cursorCol+c)*stride, offY + r*stride, dot, dot)` — no font rendering, no AA stroke loss.
+- `align: 'right'` for home (lean toward central score), `'left'` for away → mirror symmetry across SCORE.
+- VS pinned to `{ dot: 2, gap: 1 }` so V+S match digit height (21 rows × stride 3 − 1 = 62 ≈ EvenTimeBigPixel cap height at 80px).
+
+**3. Flags — SVG → 2× supersample → downsample → inverted greyscale** (`renderFlagPng`, `pngImage.ts:208-239`)
+- Load via `<img>` (`crossOrigin='anonymous'`), draw at 2× target, downsample to target, invert (dark flag elements → bright G2 green).
+- 16-shade grey preserved so adjacent stripe colors don't flatten.
+- **Not used on G2 today.** Module-scope `flagCache` and `preloadFlags` exposed but never called from `main.ts` or `pageView.ts`. Flag assets are phone-only.
+
+### 4.6 R1 input contract (`src/main.ts:194-258`)
+
+| SDK event | View | Behaviour |
+|---|---|---|
+| `listEvent.CLICK_EVENT` | list | enter detail at `listMatchAtIndex(idx) ?? pickFocusMatch()` |
+| `listEvent.DOUBLE_CLICK_EVENT` | list | `shutDownPageContainer(1)` (non-awaited — OS dialog can hang) |
+| `sysEvent.CLICK_EVENT` (no list event) | list | enter detail at `pickFocusMatch()` |
+| `sysEvent.DOUBLE_CLICK_EVENT` | list | shutdown |
+| `sysEvent.DOUBLE_CLICK_EVENT` | detail | back to list |
+| `FOREGROUND_ENTER_EVENT` | any | invalidate `last.matchId`, force structural rebuild |
+| `SYSTEM_EXIT_EVENT` / `ABNORMAL_EXIT_EVENT` | any | noop — server owns clock |
+
+`pickFocusMatch()` priority: live → most-recent FT with shootout → next upcoming ≤24h → first past → null.
+
+---
+
+## 5. Phone UI
+
+Stack: vanilla TS, no framework. Mounted into `#app` (`src/phone/mount.ts:mountPhone`). Lives inside the Even app Flutter webview chrome.
+
+### 5.1 Top tabs (`mount.ts:30-49`)
+
+Two declared tabs in `#tabs`, plus an internal `'detail'` view value:
+
+| `data-view` | Label | Default? |
+|---|---|---|
+| `matches` | Matches | yes |
+| `bracket` | Bracket | no |
+| `detail` (internal) | — | entered via row tap (`data-match-id`), exited via back button |
+
+Detail return target: if source match was FT → `'bracket'` (`wasInBracket()`, 146-150); else `'matches'`.
+
+Header (`#stage-title` + `#stage-sub`) populated by `renderStageHeader` / `stageInfo` (364-401). Stage names map at `mount.ts:352-362`:
+
+```ts
+const STAGE_NAMES: Record<Stage, string> = {
+  QF: 'Quarterfinals', SF: 'Semifinals', '3rd': 'Third-Place Playoff',
+  F: 'Final', GS: 'Group Stage', R16: 'Round of 16',
+};
+```
+
+### 5.2 Debug panel (`mount.ts:44-48`, `src/phone/debug.ts`)
+
+Three buttons in `.debug-bar`, all POST `/command`. Failure logs to console only (no toast).
+
+| Button | `data-debug` | Command | Effect |
+|---|---|---|---|
+| Start live game | `start-live` | `start_live` | reset SF1 to fresh kickoff, start 1s/min tick |
+| Mbappé scores | `mbappe-goal` | `mbappe_goal` | applyEvent away goal Mbappé at current minute |
+| Sub (FRA) | `sub` | `sub` | applyEvent sub Mbappé → Coman (away) |
+
+### 5.3 Matches tab (`renderMatches`, `mount.ts:270-286`)
+
+Three sections via `section(title, list, count)`:
+
+- **Live** — always shown, empty card if none
+- **Upcoming** — always shown
+- **Results** — only if `past.length > 0`
+
+Row layout (`matchRow(m)`, 231-268): `flag · code · center · code · flag` (right code mirrored). Live rows get `.match-card-live`.
+
+| State | Center contents |
+|---|---|
+| live | `H-A` score · LIVE badge with dot + minute · stage |
+| ft | `H-A` score (with `(Hp-Ap pen)` if shootout) · `FT` or `FT · PEN` meta · stage |
+| scheduled | `vs` placeholder · kickoff offset · stage |
+
+### 5.4 Bracket tab (`src/phone/bracketSvg.ts:renderBracketSvg`, line 203)
+
+Top: **mini-tree SVG** (`miniTree`, 106-186). Non-interactive, viewBox 200×130, fixed `4-QF → 2-SF → 1-F` skeleton. Each cell shows winner when resolved, both codes side-by-side otherwise, "TBD" otherwise. Polyline connectors. **3rd-place omitted** from mini-tree (no tree relationship). **R16 + GS omitted from mini-tree** (would explode the layout); they live in stage cards below.
+
+Section card lists (`sectionList`, 188-201), ordered top-down:
+
+```
+GS · R16 · QF · SF · F · 3rd
+```
+
+`'3rd'` only renders if a `third` match exists. All sections use the same `bracketCard(m)` component (57-100):
+
+- Single-row `[flag] HOME score AWAY [flag] | badge`
+- Winner side gets `.br-win` class (driven by `isWinner` with shootout fallback, 33-43)
+- Penalty matches: score reads `"H-A (Hp-Ap pen)"` via `.br-pen` span (line 69)
+- Live badge `LIVE {min}'`; FT badge `FT` or `FT · PEN`; scheduled `SCHEDULED`
+- Card is `role="button" tabindex="0"` with `data-match-id` → tap routes to detail
+
+### 5.5 Detail view (`renderDetail`, `mount.ts:292-347`)
+
+Renders when `view === 'detail' && detailMatchId`. Back button on top. Big detail-head: home flag+code, center score (`H - A` or `vs`), optional `<div class="detail-pen">PEN H-A</div>`, status line (live dot + minute + stage, or `FT · PEN` + stage, or kickoff + stage), optional venue line. Vote surface below; events feed reverse-chronological with minute, typed chip (Goal/Yellow/Red/HT/Sub/FT), and player name (or `OUT → IN` for subs).
+
+### 5.6 Per-match support vote (`src/phone/support.ts`)
+
+Detail-only. localStorage persistence:
+
+- `vote.{matchId}` → `'home' | 'away'`
+- `tally.{matchId}` → `"H:A"`
+
+`seedBaseline(matchId)` (30-45): FNV-1a hash → xorshift PRNG → deterministic 100–500 baseline per side per match (no network call).
+
+Surface (`voteSurface`, 217-229): chips if not yet voted on live/scheduled; frozen split-bar if FT or already voted.
+
+### 5.7 Goal toast (`mount.ts:56-67`, `src/phone/toast.ts`)
+
+Store subscription watches live-goal count delta after first non-zero baseline. Fires `toast('Goal — {team}', '{player} {min}'')` with `variant: 'goal'`. Single `.toast-host` div, `.show` animation, 2500 ms default.
+
+### 5.8 Phone → glasses nav bridge
+
+`setPhoneNavListener` / `emitNav` (`mount.ts:18-23`):
+
+- `{type:'enter-detail', matchId}` (line 107, on `data-match-id` click)
+- `{type:'exit-detail'}` (line 97 tab swap from detail, line 116 back button)
+
+`main.ts:169-180` consumes: enter → `enqueueRender('detail', fullRenderDetail)`; exit → `enqueueRender('list', renderList)`.
+
+---
+
+## 6. Server
+
+Pure Node `http.createServer` — no Express/Fastify. `server/index.ts` boots; `server/app.ts` defines routes; `server/state.ts` is the singleton store; `server/sse.ts` writes SSE frames; `server/seed.ts` ships the 8-match mock.
+
+### 6.1 HTTP routes
+
+| Method | Path | Purpose | Source |
+|---|---|---|---|
+| `OPTIONS *` | any | CORS preflight, 204 | `server/app.ts:144-149` |
+| `GET` | `/health` | `{ ok: true, uptimeSec }` | `server/app.ts:154-156` |
+| `GET` | `/events` | SSE: `snapshot` then `delta` + 15s `: ping` | `server/app.ts:158-160`, handler 52-72 |
+| `POST` | `/command` | debug control plane (JSON body `{"command": "<name>"}`) | `server/app.ts:162-169`, handler 76-136 |
+| any | (other) | `notFound()` → 404 `{ ok: false, error: "not_found" }` | `server/app.ts:23-25, 172` |
+
+Boot log advertises only `/events`, `/command`, `/health` (`server/index.ts:31-33`).
+
+### 6.2 SSE topology
+
+Headers (`server/sse.ts:7-18`):
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache, no-transform
+Connection: keep-alive
+X-Accel-Buffering: no
+Access-Control-Allow-Origin: *
+retry: 2000
+```
+
+Client lifecycle (`server/app.ts:52-72`):
+
+1. On connect → write headers, push `event: snapshot` with `{ matches: store.getAll() }`.
+2. Subscribe to store; every delta → `event: delta` payload.
+3. Per-client `setInterval` 15 s heartbeat writes `: ping\n\n` (`server/app.ts:6, 60-63`).
+4. On `req.close` / `req.error`: `clearInterval(heartbeat)`, remove from `heartbeats` Set, `unsub()`.
+
+Delta variants broadcast (`server/state.ts:6-30`):
+
+- `event-applied` — full post-change match snapshot included
+- `minute` — minute-only patch
+- `bracket-resolved` — `home`/`away` flip on downstream slot
+- `reset` — full match snapshot (used by `replaceAll` and `startLive`)
+
+No `id:` lines — cold reconnect re-hydrates from next snapshot. No backpressure handling: `res.write` is fire-and-forget, no `drain` waits, no per-client buffer cap.
+
+### 6.3 Command list (POST `/command`)
+
+All target `LIVE_TICK.matchId = "sf1"` (`server/seed.ts:122`). Body always `{"command": "<name>"}`.
+
+| Command | Effect | Success | Failure |
+|---|---|---|---|
+| `ping` | no-op | 200 `{ ok: true, pong: true }` | — |
+| `start_live` | `store.startLive("sf1")` — reset sf1 to fresh kickoff (state=live, minute=1, scores=0, events=[]), clear sf1 from downstream `resolvesFrom`, emit `reset`, start 1s/min tick | 200 `{ ok: true }` | 404 `match_not_found:sf1` if missing |
+| `mbappe_goal` | `applyEvent` away goal Mbappé at current minute with `scoreDelta { away: 1 }` | 200 `{ ok: true }` | 409 `match_not_live` |
+| `sub` | `applyEvent` sub `Mbappé → Coman` (away) at current minute | 200 `{ ok: true }` | 409 `match_not_live` |
+| (other) | — | — | 400 `unknown_command:<name>` |
+
+Malformed JSON → 400 `invalid_json`. Handler throws → 500 `internal_error` (`app.ts:165-168`).
+
+### 6.4 State model (`server/state.ts`)
+
+In-memory only; single `MatchStore` exported at `server/state.ts:306`. Nothing persisted to disk — restart re-runs `getInitialMatches()` (mock) or `hydrateFromIsports()` (live).
+
+Internal fields (`server/state.ts:34-37`):
+
+```ts
+private matches: Match[];              // initialised from getInitialMatches()
+private listeners: Set<DeltaListener>; // SSE subscribers
+private firedTickMinutes: Set<number>; // dedup for scripted ticks
+private tickHandle: setInterval | null;// at most one live tick at a time
+```
+
+Mutators and their emitted deltas:
+
+| Method | Emits | Notes |
+|---|---|---|
+| `applyEvent(matchId, ev, scoreDelta?)` | `event-applied` + optional `bracket-resolved` | on `ft` calls `stopTick()` **before** `resolveBracket()` (explicit, `:62-64`) |
+| `setMinute(matchId, n)` | `minute` | |
+| `replaceAll(matches)` | one `reset` per match | blow-away reseed (used by iSports schedule poll) |
+| `upsertEvent(matchId, ev)` | `event-applied` | dedups by `event.eventId` (iSports events feed owns timeline) |
+| `patchLivescore(matchId, patch)` | `minute` or `reset` (+ optional `bracket-resolved`) | minute-only changes → `minute`; everything else → `reset` |
+| `startLive(matchId)` | `reset` | also clears downstream `resolvesFrom`, starts scripted tick |
+| `resolveBracket(finishedMatchId)` | `bracket-resolved` | walks all matches, fills `home`/`away` of any whose `resolvesFrom` points at finished id |
+| `winnerOf(matchId)` | — | by score; tied → penalty comparison; falls back to `home` |
+| `startTick(matchId)` / `stopTick()` | (drives `applyEvent` / `setMinute`) | 1000 ms per simulated minute (`server/seed.ts:123`), only `LIVE_TICK.matchId` |
+
+`emit()` (`:294-303`) try/catches each listener so one bad SSE client cannot poison the broadcast.
+
+### 6.5 Seeding (mock, `server/seed.ts:6-119`)
+
+8 matches, hardcoded port from `src/mock/tournament.ts`:
+
+| ID | Stage | Teams | State |
+|---|---|---|---|
+| `qf1` | QF | ARG–NED | ft |
+| `qf2` | QF | FRA–ENG | ft |
+| `qf3` | QF | BRA–GER | ft |
+| `qf4` | QF | ESP–POR (PK 3-4) | ft, shootout |
+| `sf1` | SF | ARG–FRA | ft (target of `start_live`) |
+| `sf2` | SF | BRA–POR | scheduled |
+| `third` | 3rd | NED–GER | scheduled |
+| `final` | F | ARG–?? | scheduled, `resolvesFrom: { home: 'sf1', away: 'sf2' }` |
+
+Bracket projection comes from hardcoded `resolvesFrom` on `final` (the only bracket-edge seed). `resolveBracket()` only fills downstream when an upstream hits FT.
+
+### 6.6 Port + bind + CORS
+
+- **Port**: `PORT` env, default `3001` (`server/index.ts:5`).
+- **Bind**: `handle.server.listen(PORT, ...)` no host arg → Node defaults to all interfaces (`::` / `0.0.0.0`). README phrasing "binds to `:3001`" is display only; socket is LAN-reachable. Mac Mini exposure is via Tailscale to `claw`.
+- **CORS**: `Access-Control-Allow-Origin: *`, `Methods: GET, POST, OPTIONS`, `Headers: Content-Type` (`server/app.ts:8-15`). Applied via `applyCors` in `sendJson` + on OPTIONS preflight. SSE response stamps `Access-Control-Allow-Origin: *` directly in its header block (`server/sse.ts:13`). Lockdown explicitly deferred to "Phase 3".
+
+### 6.7 Concurrency posture (informal 500-client target)
+
+What enables it:
+
+- Pure Node `http.createServer` + non-blocking writes — no per-request thread.
+- Single in-memory `MatchStore`; `emit()` is a tight `for…of` over `Set<DeltaListener>`.
+- `structuredClone` only on broadcast payload, then same object goes to every SSE client.
+- Per-listener try/catch — one slow client cannot poison fan-out.
+- Heartbeat 15 s per client → ~33 timer fires/sec at 500 clients.
+- Cleanup on `req.close` + `req.error` — dead clients do not accumulate.
+
+What still threatens it:
+
+- `res.write` fire-and-forget; no `drain` waits, no per-client buffer cap.
+- No `maxHeadersCount` / `keepAliveTimeout` tuning.
+- `firedTickMinutes` / `tickHandle` are process-singletons — only one match can tick at a time. Fine for sf1-only demo, would need rework for parallel live matches.
+- All clients share one `*` CORS policy and one auth-free `/command` plane — no rate limiting.
+- Mac Mini default `ulimit -n` is 256; would need raising externally to sustain 500 SSE sockets.
+
+---
+
+## 7. iSports Adapter
+
+Lives at `server/isports/`. Disabled by default (`ENABLE_ISPORTS=false`). When enabled, `server/index.ts:19-25` runs `hydrateFromIsports(store)` before `listen()` then `startIsportsPollers(store)`.
+
+### 7.1 Layout
+
+| File | Lines | Purpose |
+|---|---|---|
+| `client.ts` | 127 | typed HTTP wrappers |
+| `decode.ts` | 155 | pure enum → string-union decoders |
+| `transform.ts` | 267 | raw row → internal `Match` / `MatchEvent` |
+| `teamMap.ts` | 196 | name + id → FIFA-3 `TeamCode` |
+| `poller.ts` | 191 | hydrate + 3 setInterval loops |
+| `index.ts` | 48 | barrel re-exports |
+
+### 7.2 API client (`client.ts`)
+
+- Base URL `http://api.isportsapi.com/sport/football` — plain HTTP, not HTTPS.
+- Auth: query param `api_key=<key>`, read from `process.env.ISPORTS_API_KEY` on every call (so post-import dotenv works); throws synchronously if unset.
+
+| Method | Endpoint |
+|---|---|
+| `getLivescores()` | `GET /livescores` |
+| `getLivescoresChanges()` | `GET /livescores/changes` |
+| `getEvents()` | `GET /events` |
+| `getSchedule({leagueId?, date?})` | `GET /schedule?…` |
+| `getTeam(teamId)` | `GET /team?teamId=…` |
+| `getLeague()` | `GET /league` |
+
+Not in tier (returns `code=2 "haven't purchased"`, `client.ts:12-13`): `/livescore` singular, `/lineup`, `/competition`, `/odds`.
+
+Retry / timeout: **none**. No `AbortController`, no backoff, no jitter. Network failure → throws `iSports fetch failed for <path>: <msg>`. Non-2xx → throws `iSports HTTP <status>`. `code !== 0` (application error) → does NOT throw; returns envelope so caller decides.
+
+### 7.3 Status decode (`decode.ts:32-53`)
+
+```ts
+function decodeStatus(status: number): 'scheduled' | 'live' | 'ft' | 'cancelled'
+```
+
+| iSports code | Meaning | Internal |
+|---|---|---|
+| `0` | not started | `scheduled` |
+| `-11` | TBD | `scheduled` |
+| `1` | first half | `live` |
+| `2` | half time | `live` |
+| `3` | second half | `live` |
+| `4` | extra time | `live` |
+| `5` | penalty shootout | `live` |
+| `-1` | finished (incl. after-ET / after-shootout) | `ft` |
+| `-10` | cancelled | `cancelled` (sentinel) |
+| `-12` | terminated | `cancelled` |
+| `-13` | interrupted | `cancelled` |
+| `-14` | postponed | `cancelled` |
+| (other) | unknown | `cancelled` (safe default) |
+
+`'cancelled'` is a sentinel string, NOT a `MatchState`. `transformMatch` returns `null` for cancelled (`transform.ts:222-223`).
+
+Note: status=5 (shootout in progress) collapses to `'live'` in the 3-state model — UI cannot distinguish from regular play (`transform.ts:204-207`).
+
+### 7.4 Event decode (`decode.ts:85-96`)
+
+```ts
+function decodeEventType(type: number): EventType | null
+```
+
+| iSports type | Meaning | Internal |
+|---|---|---|
+| `1` | goal | `goal` |
+| `2` | red card | `red` |
+| `3` | yellow card | `yellow` |
+| `4` | (unused; earlier guess of "sub" was wrong) | `null` |
+| `7` | penalty scored | `goal` |
+| `8` | own goal | `goal` |
+| `9` | second yellow → red | `red` |
+| `11` | substitution | `sub` |
+| `13` | penalty missed | `null` (dropped) |
+| `14` | VAR review | `null` (dropped) |
+| `0` / other | unknown | `null` (dropped) |
+
+Authority: iSports docs page id=15, cached at `server/isports-docs.txt` (`decode.ts:58-60`). Tests pin all of these including the `decodeEventType(4) === null` guard (`test/isports-decode.test.ts:40-57`).
+
+`ht` / `ft` are NOT iSports event types — derived from match-record status flips (`decode.ts:82-84`).
+
+### 7.5 Stage decode (`decode.ts:120-154`)
+
+| `round` (case-insensitive) | Stage |
+|---|---|
+| `group stage` | `GS` |
+| `1/8 final`, `round of 16` | `R16` |
+| `quarterfinals`, `quarter-finals`, `quarter finals` | `QF` |
+| `semifinal`, `semifinals`, `semi-finals` | `SF` |
+| `finals`, `final` | `F` |
+| `third runner`, `3rd place play-off`, `3rd-place playoff`, `third place playoff` | `3rd` |
+| `1/16final`, `1/16 final`, `round of 32` | `null` (dropped — no slot in `Stage` union) |
+| (other) | `null` |
+
+Fixture distribution (`server/fixtures/schedule-wc2026.json`, 104 rows): 72× Group stage, 16× 1/16Final (R32, dropped), 8× 1/8 Final, 4× Quarterfinals, 2× Semifinal, 1× Third runner, 1× Finals.
+
+### 7.6 Sub parser (`transform.ts:115-168`)
+
+**Arrow form** (canonical, per docs id=15):
+
+```
+/^\s*(.+?)\s*↑\s*(.+?)\s*↓\s*$/
+```
+
+- Group 1 = up-arrow side = `playerIn` (coming ON)
+- Group 2 = down-arrow side = `player` (coming OFF)
+- Arrows are U+2191 / U+2193
+
+**Paren fallback** (defensive, anomalous data):
+
+```
+/^\s*(.+?)\s*\(Assists?:\s*(.+?)\s*\)\s*$/i
+```
+
+- Group 1 → `player` (off), Group 2 → `playerIn` (on)
+
+If neither matches: raw `playerName` → `player` as-is, `assistPlayerName` (if any) → `playerIn` (`transform.ts:165-167`). Only runs when `safeType === 'sub'` (iSports type=11).
+
+### 7.7 Goal-with-assist parser (`transform.ts:170-173`)
+
+No dedicated split. iSports format is `"Scorer(Assist:Assister)"` — the adapter **keeps the full string intact** in `out.player`. UI side strips if needed (`transform.ts:101-103`). `assistPlayerName` is rarely populated and is not consulted on goal events.
+
+### 7.8 Match transform extras
+
+| Field | Rule | Source |
+|---|---|---|
+| `minute` (event) | overtime takes precedence if non-zero (a 95+ goal stays "95"); else baseMinute; else 0 | `transform.ts:136-140` |
+| `side` (event) | `homeEvent===true` → `'home'`; `===false` → `'away'`; null → `null` | `transform.ts:129-133` |
+| `homeScore`/`awayScore` | scheduled → both `null`; live/ft → `?? 0` | `transform.ts:234-245` |
+| `homePenalty`/`awayPenalty` | non-null only if `extraExplain.penHomeScore \|\| penAwayScore` truthy | `transform.ts:234-245` |
+| `minute` (Match) | scheduled `null`; live `extraExplain.minute` (or null if 0); ft `null` | `transform.ts` |
+| `kickoffOffsetMin` | hardcoded `0` (iSports doesn't supply this) | `transform.ts:259-261` |
+| `venue` | from `raw.location` if present | `transform.ts:264` |
+
+### 7.9 Team mapping (`teamMap.ts`)
+
+Two tables, lookup order id-first then name fallback (`transform.ts:79-86`):
+
+- `TEAM_ID_TO_CODE` (`teamMap.ts:133-195`) — 48 numeric iSports team IDs → FIFA-3 code, harvested from `schedule-wc2026.json` on 2026-06-08.
+- `TEAM_NAME_TO_CODE` (`teamMap.ts:41-126`) — 58 codes × multiple variants, normalised by `normaliseTeamName` (trim, collapse whitespace, lowercase; no diacritic strip — known gap).
+
+Full 58-code coverage by confederation:
 
 | Confederation | Count | Codes |
 |---|---|---|
-| CONCACAF (incl. 3 hosts) | 6 | USA CAN MEX CRC PAN JAM |
-| CONMEBOL | 6 | ARG BRA URU COL ECU PAR |
-| UEFA | 20 | ESP FRA ENG GER ITA NED POR BEL CRO SWI DEN POL AUT CZE SRB NOR **BIH SCO SWE TUR** |
-| CAF | 12 | MAR SEN EGY GHA CMR NGA ALG TUN CIV **CPV COD RSA** |
-| AFC | 10 | JPN KOR AUS IRN KSA QAT UAE IRQ **JOR UZB** |
-| OFC + playoffs | 4 | NZL BOL HAI **CUW** |
-| **Total** | **58** | bold = added per #1A after iSports adapter landed |
+| CONCACAF | 6 | USA, MEX, CAN, JAM, CRC, PAN |
+| CONMEBOL | 6 | ARG, BRA, URU, COL, ECU, PAR |
+| UEFA | 20 | ESP, FRA, ENG, GER, ITA, NED, POR, BEL, CRO, SWI, DEN, POL, AUT, CZE, SRB, NOR, BIH, SCO, SWE, TUR |
+| CAF | 12 | MAR, SEN, EGY, NGA, ALG, TUN, CMR, GHA, CIV, CPV, COD, RSA |
+| AFC | 10 | JPN, KOR, IRN, KSA, AUS, QAT, UAE, IRQ, JOR, UZB |
+| OFC + playoffs | 4 | NZL, BOL, HAI, CUW |
 
-To refresh assets (after a flag-icons version bump, or to swap a placeholder once a real qualifier is confirmed): edit the `PAIRS` array in `scripts/copy-flags.sh`, then `bash scripts/copy-flags.sh`.
+10 codes added on top of the original 48 mock nations for the iSports projection: **BIH, CPV, CUW, COD, JOR, SCO, RSA, SWE, TUR, UZB** (`teamMap.ts:18-25`). Codes like ITA/DEN/POL/SRB/CMR/NGA/IRN/KSA/UAE/BOL/CRC/JAM stay mapped for future draws even though iSports' current projection does not include them.
 
-### 7.3 Header — plain text, default LVGL font
+### 7.10 Poller (`poller.ts`)
 
-The Layer 2 header is a **`TextContainerProperty`** with default LVGL font, NOT a canvas-rendered image. Removed `renderHeaderTextPng()` entirely. Reasons:
+Three independent setInterval loops, all wrapped in `safePoll` that never throws past the interval boundary (`poller.ts:74-86`).
 
-- LVGL has no `text-align: center`, but for the top strip we don't need it — left-aligned at x=8 reads fine.
-- Avoids FontFace race that caused initial-paint flicker / fallback rendering.
-- Avoids the sim's 288×144 max-image-size validation rejection.
-
-### 7.4 EvenTimeBigPixel font reference (CONFIRMED via fontTools inspection)
-
-- **Family name:** `Even Time Big Pixel`
-- **PostScript name:** `EvenTimeBigPixel`
-- **unitsPerEm:** **800** (non-standard). Clean grid sizes: **8, 10, 16, 20, 25, 32.**
-- **Char coverage (65 chars):** `0–9 A–Z a–z space colon`. **No hyphen/minus, no period, no other punctuation.** Score dash MUST be hand-drawn `fillRect`.
-- typoAscender 620, typoDescender 0, lineGap 340.
-- File: `public/fonts/EvenTimeBigPixel.ttf`.
-- **OS-only rule:** the font FILE belongs to OS UI. Using it inside our app to RASTERIZE a bitmap that we ship to a G2 image container is permitted — the OS never sees the font file, only the resulting pixels.
-
-### 7.5 Other fonts in project
-
-- `public/fonts/FKGroteskNeue.ttf` — phone primary
-- `public/fonts/EvenRosterGrotesk.otf` — phone alt Latin/Cyrillic/Greek
-- `public/fonts/EvenSignature.otf` — special English moments
-- `public/fonts/even-pixel-alphabet.svg` — A–Z pixel-art atlas (G2 codes + VS). Authored by David; lives in `public/fonts/` so Vite copies it into `dist/` for the `.ehpk` package. Schema: one `<g id="X">` per uppercase letter, each containing `<rect width="20" height="20" x=… y=…>` cells on a `30px` grid stride.
-
-**Asset bundling — what ships inside the `.ehpk`:**
-Everything under `public/` is copied verbatim to `dist/` at build time. The `.ehpk` packager zips `dist/`, so the plugin is fully self-contained: fonts, flags, the pixel alphabet, and the JS bundle all travel together. No runtime dependency on the host app's asset catalog.
-
----
-
-## 8. Data Transport Architecture
-
-### 8.1 Provider: iSports REST (no native WebSocket)
-
-iSports doesn't offer WS. Polling every endpoint from every client is wasteful. Recommended production architecture:
-
-```
-Phones + glasses
-     ↑
-  WS / SSE / FCM push
-     ↑
-  Even backend relay
-     ↑
-  REST poll every 5s
-     ↑
-  iSports cloud
-```
-
-Benefits: single iSports consumer (one rate budget, one bill); clients receive push; server dedupes / throttles / prioritizes (goals immediately, minute updates every 15s); static data cached at edge.
-
-If WS is a hard requirement and managed: **Sportmonks** offers WS + webhooks natively (5–30× iSports cost).
-
-### 8.2 iSports endpoints
-
-| Endpoint | Path | Update window | Recommended poll | Hard cap |
+| Loop | Endpoint | Interval | Purpose | Const |
 |---|---|---|---|---|
-| Livescores (full snapshot) | `/sport/football/livescores` | now | 1 / min | 10 / sec |
-| Livescores Changes (incremental) | `/sport/football/livescores/changes` | last 20 s | **2–10 s** | 1 / sec |
-| Events | `/sport/football/events?cmd=new` | last 3 min | 1 / min | 10 / sec |
-| Lineups | `/sport/football/lineups` | past 24 h; ±3 days w/ isPreview | 60–90 s | 1 / 60 s |
-| Schedule | `/sport/football/schedule` | by date / leagueId | 12 h | 60 / sec |
-| Team profile | `/sport/football/team` | static | 1 / day | 1 / 1800 s |
-| Player profile | `/sport/football/player` | static | 1 / day | 60 / sec |
+| schedule | `GET /schedule?leagueId=1572` | 12 h (43,200,000 ms) | re-hydrate full bracket; picks up draw resolutions | `SCHEDULE_POLL_MS` (`poller.ts:35`) |
+| livescores | `GET /livescores/changes` | 5 s (5,000 ms) | patch score/state/minute on existing matches; ignores unknown matchIds | `LIVESCORES_POLL_MS` (`poller.ts:36`) |
+| events | `GET /events` | 60 s (60,000 ms) | append new events to known matches | `EVENTS_POLL_MS` (`poller.ts:37`) |
 
-**Product 219 = FIFA World Cup 2026** bundle, $49/mo, leagueId 1572.
+- Events dedupe key: `eventId` via `store.upsertEvent(matchId, ev)` (`poller.ts:147-149`).
+- SSE delta trigger is in the store, not the poller. The poller calls `store.patchLivescore` / `store.upsertEvent`; the store fans out.
+- `transformMatch` invoked with `{ leagueId: '1572' }` on hydrate and livescores → non-WC rows from the global `/livescores/changes` feed are pre-dropped (`poller.ts:111`).
+- `pollEvents` only feeds events into matches already in the store (`poller.ts:145`).
+- `code !== 0` on hydrate → throws (`poller.ts:48-52`); on poll loops → warns + returns (`poller.ts:101-107, 136-139`).
+- No backoff after failures — every interval retries on its fixed cadence.
 
-**Event reconciliation:** events have stable `eventId`. Only added/removed (never modified) — corrections delete-then-insert. Client must dedupe by `eventId`.
+### 7.11 leagueId filter
 
-**Match status enum** (iSports values):
-`0 = not_started · 1 = first_half · 2 = half_time · 3 = second_half · 4 = extra_time · 5 = penalty · -1 = finished · -10 = cancelled · -11 = TBD · -12 = terminated · -13 = interrupted · -14 = postponed`
+- `LEAGUE_ID = '1572'` (`poller.ts:34`) — FIFA World Cup 2026.
+- Used in: hydrate (`poller.ts:47, 58`), livescores poll (`poller.ts:111`), implicitly skipped for events (events feed is global, filtered indirectly by "match must already be in store").
+- Filter: `transformMatch(raw, { leagueId: '1572' })` → `if (opts.leagueId && raw.leagueId !== opts.leagueId) return null` (`transform.ts:220`). Strict string equality.
 
-### 8.3 Backend robustness — can the Mac Mini host this?
+### 7.12 ENV vars
 
-**Demo + small audience (<500 users): yes.**
-**Public launch with thousands of concurrent viewers: no — but a $5–10/mo cloud VPS is the answer, not a beefier home server.**
+| Var | Default | Behaviour |
+|---|---|---|
+| `ISPORTS_API_KEY` | (none) | Read on every call (`client.ts:36-45`). Throws if unset. Lazy read so dotenv loaders that run after module import still work. `.env.example:5` ships `your_key_here`. |
+| `ENABLE_ISPORTS` | `false` | Truthy: `'true'`, `'1'`, `'yes'` (case-insensitive, trimmed). Falsy → mock seed. Truthy → `await hydrateFromIsports(store)` + `startIsportsPollers(store)`. (`server/index.ts:11-25`) |
+| `PORT` | `3001` | `Number(process.env.PORT ?? 3001)` (`server/index.ts:5`). |
 
-Load profile per match:
-- iSports calls: 5s poll × 90 min = ~1,100 inbound calls per match. Comfortable.
-- WS fan-out: 1 publication × N subscribers; ~200 bytes per push. CPU light.
-- Static caching: team/player profiles cached 24h.
+Nothing in this code loads dotenv directly — the `tsx --env-file-if-exists=.env` flag in the npm script and launchd plist handles it.
 
-Mac Mini M2 ceiling (residential network):
-- WebSocket connections: easily 5k–10k concurrent; tuned, 50k+.
-- Bandwidth: residential ~50–500 Mbps up. 1k users × few KB/s ≈ 40–80 Mbps sustained — at the upper limit of typical residential.
-- iSports outbound: a few KB × 12 polls/min = ~1 MB/min. Trivial.
+### 7.13 Match coverage today
 
-Real failure modes:
-1. **Residential ISP reliability** — ~99.5% uptime ≈ 3.6h downtime/month. Untenable during a Final.
-2. **Dynamic IP / NAT** — fix with Tailscale (already on `claw`) or Cloudflare Tunnel.
-3. **Power outage / macOS auto-reboot** — disable auto-reboot, configure launchd auto-restart.
-4. **Bandwidth burst on goal moments** — 10k × 200 bytes = 2 MB instant burst. Fine on cable.
-5. **Single point of failure** — no redundancy.
+Filter cascade applied to `server/fixtures/schedule-wc2026.json` (104 rows):
 
-**Recommendations:**
+| Filter | Surviving | Dropped |
+|---|---|---|
+| Total schedule rows | 104 | — |
+| `leagueId === '1572'` | 104 | 0 |
+| Status not cancelled (all `0` in schedule fixture) | 104 | 0 |
+| Stage decoded (drops 16× `1/16Final` = R32) | 88 | 16 |
+| Both teams resolve to `TeamCode` | **72** | 16 |
 
-- **Phase 0 (demo, <500 users):** Mac Mini fine. Cloudflare Tunnel for stable public endpoint, launchd for auto-restart.
-- **Phase 1 (alpha, 500–5k users):** Mac Mini = iSports poller + Redis source-of-truth. Push a thin WS edge to $6/mo DigitalOcean droplet / Fly.io free tier. Edge owns long-lived WS connections; Mini stays local.
-- **Phase 2 (public, 5k+):** Full relay on managed VPS, 2–3 region replicas (~$15–30/mo). Mac Mini becomes backup poller.
+**Real coverage: 72 of 104 (69%) hydrate cleanly. All 72 are group-stage; zero knockouts.**
 
-**Architecture detail at Phase 1+:**
-```
-iSports →(REST)→ Mac Mini Poller →(Redis pub/sub)→ Cloud WS Edge →(WS)→ Clients
-```
+The 32 drops:
 
----
+- **16 at stage filter** — all `1/16Final` (R32) matches. `decodeStage` returns `null` because there is no `R32` slot in the `Stage` union.
+- **16 at team-mapping filter** — every knockout match from `1/8 Final` onward. iSports stores bracket placeholders (`"73 WIN"`, `"101 loser"`, …, team IDs in 73–102 range) until the draw resolves. None exist in `TEAM_ID_TO_CODE` or `NAME_VARIANTS`, so `resolveTeam` returns `null`.
 
-## 9. Mock Strategy
+Unmapped placeholders observed: `73 WIN`, `74 WIN`, …, `100 WIN`, `101 WIN`, `102 WIN`, `101 loser`, `102 loser` (32 distinct strings across 16 KO matches).
 
-Mock simulates **push-pattern semantics**, not direct client polling. Matches the production relay shape so demo code maps 1:1 to real architecture.
-
-- In-browser hidden "server world" (`src/state/mockServer.ts`) advances on private timer (1 in-game minute per 4 real seconds).
-- Scripted live events fire on SF1 (see §3).
-- Client (`src/state/store.ts`) subscribes; UI updates reactively.
-- Events carry `eventId` for stable reconciliation.
-
-**Production swap:** replace `mockServer` tick with WS subscription to Even backend relay. Client rendering code unchanged.
+KO will hydrate automatically once iSports replaces placeholders with real team IDs/names (schedule poll picks them up, no code change needed). R32 stays dropped until either `Stage` gains `R32` or `decodeStage` is extended.
 
 ---
 
-## 10. File Map
+## 8. Build & Test & Deploy
+
+### 8.1 Runtime dependencies (`package.json:28-31`)
+
+| Package | Version | Purpose |
+|---|---|---|
+| `@evenrealities/even_hub_sdk` | ^0.0.10 | G2 SDK bridge |
+| `upng-js` | ^2.1.0 | PNG encode for glasses images |
+
+No HTTP framework dep — server uses Node built-in `http`.
+
+### 8.2 Dev dependencies (selected, `package.json:15-26`)
+
+| Package | Version |
+|---|---|
+| `vite` | ^8.0.12 |
+| `vitest` | ^4.1.8 |
+| `tsx` | ^4.19.2 |
+| `typescript` | ^5.9.3 |
+| `@evenrealities/evenhub-cli` | ^0.1.13 |
+| `@evenrealities/evenhub-simulator` | ^0.7.3 |
+| `concurrently` | ^9.1.2 |
+| `happy-dom` | ^20.10.2 |
+| `playwright` | ^1.60.0 |
+| `flag-icons` | ^7.5.0 |
+| `@types/node` | ^22.10.5 |
+
+### 8.3 npm scripts (`package.json:6-14`)
+
+| Script | Command | Purpose |
+|---|---|---|
+| `dev` | `vite` | frontend dev server (proxies SSE+command to :3001) |
+| `build` | `tsc && vite build` | typecheck then production bundle |
+| `preview` | `vite preview` | serve built dist locally |
+| `server` | `tsx watch --env-file-if-exists=.env server/index.ts` | push-relay backend on :3001 with hot reload |
+| `dev:all` | `concurrently -n vite,server 'npm:dev' 'npm:server'` | both in one terminal |
+| `test` | `vitest run` | one-shot test suite |
+| `test:watch` | `vitest` | watch mode |
+
+### 8.4 Vite proxy (`vite.config.ts:8-19`)
+
+Dev-only proxy forwards two paths to `http://localhost:3001`:
+
+- `/events` — SSE stream (changeOrigin: true, native SSE passthrough — no buffering)
+- `/command` — POST command channel (changeOrigin: true)
+
+Production assumes both paths are exposed on the same origin as the static bundle.
+
+### 8.5 Test suite (`vitest run`)
+
+**9 files passed, 129 tests passed, 0 failures, 0 skips. Duration ~628 ms.**
+
+`vitest.config.ts:14` matches `test/client-*.test.ts` to happy-dom; everything else runs in Node. `fileParallelism: false` to avoid HTTP-listener / fake-timer cross-contamination.
+
+| File | Lines | Scope |
+|---|---|---|
+| `test/client-store-sse.test.ts` | 151 | happy-dom env, mock EventSource — client store ↔ SSE round-trip |
+| `test/format.test.ts` | 216 | `src/g2/format.ts` formatters |
+| `test/isports-client.test.ts` | 133 | HTTP client error model, code-handling |
+| `test/isports-decode.test.ts` | 101 | status / event / stage decoders |
+| `test/isports-transform.test.ts` | 247 | raw row → `Match` / `MatchEvent` |
+| `test/scenarios.test.ts` | 82 | end-to-end behaviours |
+| `test/server-http.test.ts` | 236 | HTTP routes + SSE handshake |
+| `test/server-state.test.ts` | 177 | `MatchStore` mutators + delta emission |
+| `test/store.test.ts` | 202 | client `Store` apply + subscribe |
+| **Total** | **1545** | |
+
+### 8.6 Build output
+
+Exit 0. `vite v8.0.14`, 37 modules transformed, ~124 ms.
+
+| Asset | Size | Gzip |
+|---|---|---|
+| `dist/index.html` | 0.80 kB | 0.41 kB |
+| `dist/assets/index-*.css` | 17.65 kB | 4.01 kB |
+| `dist/assets/pngImage-BWBG0aRh.js` | 0.07 kB | 0.08 kB |
+| `dist/assets/pngImage-Da--KlP3.js` | 67.74 kB | 22.98 kB |
+| `dist/assets/index-Chp31rho.js` | 97.28 kB | 36.84 kB |
+
+Main bundle ~98 kB raw / ~37 kB gzip. No warnings.
+
+### 8.7 Mac Mini launchd plist (`/tmp/com.even.wc-server.plist`)
+
+| Key | Value |
+|---|---|
+| `Label` | `com.even.wc-server` |
+| `ProgramArguments` | `/bin/bash -lc 'cd /Users/davidbot/CLAUDE_OUTPUT/apps/even-hub-worldcup && exec node --env-file-if-exists=.env node_modules/.bin/tsx server/index.ts'` |
+| `WorkingDirectory` | `/Users/davidbot/CLAUDE_OUTPUT/apps/even-hub-worldcup` |
+| `RunAtLoad` | `true` |
+| `KeepAlive` | `SuccessfulExit=false`, `Crashed=true` (relaunch on crash, not on clean exit) |
+| `ThrottleInterval` | `10` (seconds between restarts) |
+| `StandardOutPath` | `/Users/davidbot/Library/Logs/wc-server.log` |
+| `StandardErrorPath` | `/Users/davidbot/Library/Logs/wc-server.err.log` |
+| `SoftResourceLimits.NumberOfFiles` | `4096` (SSE fan-out headroom) |
+
+Bash login shell wrapper inherits PATH/Node; `exec` so launchd tracks the node PID directly.
+
+Current state: PID 58227, last exit 0, running. `/health` returns `{"ok":true,"uptimeSec":60395}` (~16.8 h uptime). Logs show iSports polling healthy (101–1699 ms per poll) — adapter has been left on for soak.
+
+### 8.8 .ehpk packaging
+
+No npm script wraps packaging. `@evenrealities/evenhub-cli ^0.1.13` is a devDep but not wired into any `npm run`. Workflow: manual `npx evenhub pack` (per `everything-evenhub:cli-reference`).
+
+One prebuilt artifact at root: **`worldcup-v0.1.0.ehpk` (400 KB, dated 2026-06-08 19:30)**.
+
+`app.json` manifest: `package_id=com.even.worldcup`, `version=0.1.0`, `min_sdk_version=0.0.10`, `entrypoint=index.html`, no permissions declared, EN-only.
+
+### 8.9 Git/GitHub
+
+- Remote: `origin https://github.com/LesenmiaoYu/even-hub-worldcup.git` (fetch + push)
+- Last commit: `2dea824 Initial commit: World Cup Even Hub demo app`
+- Working tree: 1 modified file uncommitted — `src/phone/bracketSvg.ts` (today's GS + R16 section additions)
+
+### 8.10 Asset pipeline scripts
+
+- `scripts/copy-flags.sh` — copies 58 FIFA→ISO flag pairs out of `node_modules/flag-icons/flags/4x3/` into `public/flags/`. Confederation breakdown: CONCACAF 6, CONMEBOL 6, UEFA 20, CAF 12, AFC 10, OFC + playoffs 4.
+- `scripts/render-g2-mockups.py` — 321 lines, PIL-based, renders 3 deterministic PNG mockups (Layer 1 schedule + 2 Layer 2 variants) into `docs/images/` using bundled pixel fonts.
+
+---
+
+## 9. File Map
 
 ```
 even-hub-worldcup/
-├── spec.md                        # this file
-├── app.json                       # Even Hub manifest (com.even.worldcup, sdk 0.0.10)
-├── package.json
+├── app.json                                 # EvenHub manifest (com.even.worldcup, v0.1.0)
+├── index.html                               # Vite entrypoint
+├── package.json                             # npm scripts, deps
+├── vite.config.ts                           # /events + /command proxy to :3001
+├── vitest.config.ts                         # happy-dom for client tests, node otherwise
 ├── tsconfig.json
-├── vite.config.ts
-├── index.html                     # no-zoom viewport, local fonts only
-├── src/
-│   ├── types.ts                   # Domain types + IsportsStatus enum mirror
-│   ├── upng-js.d.ts               # UPNG type shim
-│   ├── style.css                  # Even DL 3.0 tokens + chrome rules + vote + bracket
-│   ├── main.ts                    # Bridge setup, R1 wiring, two-layer view state machine
-│   ├── mock/
-│   │   ├── teams.ts               # 8 teams + flag asset paths
-│   │   └── tournament.ts          # 8 matches + scripted SF1 live tick
-│   ├── state/
-│   │   ├── store.ts               # shared store with subscribe + getLive/getUpcoming/getPast/getAll/get
-│   │   └── mockServer.ts          # server-world tick driver (was liveClock.ts)
-│   ├── g2/
-│   │   ├── format.ts              # listLeft, listRight, statusVerbose, scoreText, asciiName, eventChip, pastRow
-│   │   ├── pixelAlphabet.ts       # SVG A–Z atlas loader + renderPixelAlphabetPng (codes + VS)
-│   │   ├── pngImage.ts            # canvas → 4-bit PNG, renderScorePng (EvenTimeBigPixel + threshold), renderVsPng, renderCodePng, renderFlagPng (16-shade), preloadFlags
-│   │   └── pageView.ts            # buildListPage (Layer 1), buildDetailPage (Layer 2),
-│   │                              # pickFocusMatch, getMatchById, listMatchAtIndex, DETAIL_IDS
-│   └── phone/
-│       ├── mount.ts               # Matches + Bracket + Detail; vote rendered ONLY in Detail; debug bar wired
-│       ├── bracketSvg.ts          # hybrid mini-tree SVG + stage-grouped cards (color-coded)
-│       ├── toast.ts               # bottom slide-in toast (default + goal variant)
-│       ├── dialog.ts              # Cupertino confirm + alert
-│       ├── debug.ts               # demo-only: start-live-game + Mbappé-scores handlers
-│       └── support.ts             # per-match castVote / getTally / getUserVote / getTallySync
-├── scripts/
-│   ├── copy-flags.sh              # one-shot: copies 48 WC2026 flags from flag-icons → public/flags/
-│   └── render-g2-mockups.py       # PIL renderer for the spec's G2 screenshots (Layer 1 + Layer 2 vs/live/ft)
-├── docs/
-│   └── images/                    # Spec screenshots: g2-layer-1.png, g2-layer-2-{vs,live,ft}.png (PIL),
-│                                  # phone-{matches,bracket,detail,toast-goal}.png (manual capture)
+├── worldcup-v0.1.0.ehpk                     # prebuilt package (400 KB)
+│
 ├── public/
-│   ├── flags/                     # 48 WC 2026 country SVG flags (see §7.6)
+│   ├── favicon.svg
+│   ├── icons.svg
+│   ├── flags/                               # 58 FIFA-3 SVGs (alg.svg … uzb.svg)
 │   └── fonts/
-│       ├── FKGroteskNeue.ttf      # phone primary
-│       ├── EvenRosterGrotesk.otf  # phone alt
-│       ├── EvenSignature.otf      # special English
-│       ├── EvenTimeBigPixel.ttf   # canvas-only for G2 score digits + colon
-│       └── even-pixel-alphabet.svg # A–Z pixel atlas for G2 codes + VS (see §7.5)
+│       ├── even-pixel-alphabet.svg         # A–Z atlas (3460×3340 viewBox, 20×20 rects on 30px stride)
+│       ├── EvenTimeBigPixel.ttf            # 14 KB — score digits + colon
+│       ├── FKGroteskNeue.ttf               # 195 KB — phone styling (loaded via CSS)
+│       ├── EvenRosterGrotesk.otf           # 131 KB — present but not currently loaded by JS
+│       └── EvenSignature.otf               # 15 KB — present but not currently loaded by JS
+│
+├── src/
+│   ├── main.ts                              # entry: mountPhone + SDK bridge + render queue + SSE bootstrap
+│   ├── style.css                            # phone + (some) shared styles
+│   ├── types.ts                             # client-side type contracts (mirrors server/types.ts)
+│   ├── env.d.ts
+│   │
+│   ├── g2/
+│   │   ├── pageView.ts                      # buildListPage + buildDetailPage; container builders
+│   │   ├── format.ts                        # asciiName, scoreText, listLeft/listRight, status strings
+│   │   ├── pngImage.ts                      # renderPixelTextPng + renderScorePng + renderVsPng + renderFlagPng + canvasTo16IndexedPng
+│   │   └── pixelAlphabet.ts                 # SVG glyph atlas parser + renderPixelAlphabetPng
+│   │
+│   ├── mock/
+│   │   └── tournament.ts                    # 8-match bracket seed (mirrored to server/seed.ts)
+│   │
+│   ├── phone/
+│   │   ├── mount.ts                         # mountPhone, tabs, renderMatches, renderDetail, nav bridge
+│   │   ├── bracketSvg.ts                    # renderBracketSvg, miniTree, sectionList (GS+R16+QF+SF+F+3rd)
+│   │   ├── support.ts                       # localStorage vote/tally, seedBaseline (FNV-1a + xorshift)
+│   │   ├── toast.ts                         # single .toast-host, goal variant
+│   │   ├── dialog.ts                        # confirm/alert helpers (exported but unused; vestigial)
+│   │   └── debug.ts                         # debug-bar handlers → postCommand
+│   │
+│   └── state/
+│       ├── store.ts                         # client Store: applyDelta switch + subscribe/notify
+│       └── serverClient.ts                  # openServerConnection (EventSource on /events) + postCommand
+│
+├── server/
+│   ├── index.ts                             # boot: ENABLE_ISPORTS gate → hydrateFromIsports + pollers
+│   ├── app.ts                               # http.createServer, routes (/events /command /health), CORS
+│   ├── sse.ts                               # SSE frame writer, headers, retry: 2000
+│   ├── state.ts                             # MatchStore singleton, mutators, emit() fan-out
+│   ├── seed.ts                              # 8-match bracket + LIVE_TICK scripted ticks
+│   ├── types.ts                             # server-side mirror of src/types.ts
+│   ├── README.md                            # server-side notes
+│   ├── isports-docs.txt                     # cached iSports docs page id=15
+│   ├── isports-docs.json                    # parsed iSports docs
+│   │
+│   ├── isports/
+│   │   ├── client.ts                        # typed HTTP wrappers (api.isportsapi.com/sport/football)
+│   │   ├── decode.ts                        # decodeStatus / decodeEventType / decodeStage
+│   │   ├── transform.ts                     # raw row → Match / MatchEvent; sub parser; goal-assist passthrough
+│   │   ├── teamMap.ts                       # TEAM_ID_TO_CODE (48) + TEAM_NAME_TO_CODE (58)
+│   │   ├── poller.ts                        # hydrateFromIsports + 3 setInterval loops
+│   │   └── index.ts                         # barrel re-exports
+│   │
+│   └── fixtures/
+│       ├── schedule-wc2026.json             # 104 rows
+│       ├── livescores.json
+│       ├── livescores-changes.json
+│       ├── events.json
+│       └── leagues.json
+│
+├── test/
+│   ├── client-store-sse.test.ts             # happy-dom: mock EventSource ↔ Store
+│   ├── format.test.ts                       # G2 formatters
+│   ├── isports-client.test.ts               # HTTP error model
+│   ├── isports-decode.test.ts               # decoder enums
+│   ├── isports-transform.test.ts            # row → Match
+│   ├── scenarios.test.ts                    # behavioural
+│   ├── server-http.test.ts                  # routes + SSE handshake
+│   ├── server-state.test.ts                 # MatchStore mutators
+│   └── store.test.ts                        # client Store apply/subscribe
+│
+├── scripts/
+│   ├── copy-flags.sh                        # 58 FIFA→ISO flag copies from flag-icons
+│   └── render-g2-mockups.py                 # PIL deterministic mockups → docs/images/g2-*.png
+│
+└── docs/
+    └── images/
+        ├── g2-layer-1.png                   # Layer 1 schedule (mockup)
+        ├── g2-layer-2-vs.png                # Layer 2 pre-kickoff
+        ├── g2-layer-2-live.png              # Layer 2 live with score
+        └── g2-layer-2-ft.png                # Layer 2 FT with PEN block
 ```
 
-Files removed during this iteration: `src/state/nav.ts` (legacy), `src/g2/pngImage.ts:renderHeaderTextPng` (replaced by plain text container).
+---
+
+## 10. Roadmap / Known Gaps
+
+### 10.1 iSports coverage
+
+- **R32 entirely invisible** (16 matches). `Stage` union has no `R32` slot, so `decodeStage` returns `null` for `1/16Final` rows. Needs a product decision: extend `Stage` vs collapse R32 into R16 vs continue to hide.
+- **KO team placeholders not handled.** 16 KO matches (1/8 Final onward) hydrate with `null` teams because iSports stores `"73 WIN"` / `"101 loser"` until the draw resolves. Once iSports replaces placeholders with real team IDs/names, the schedule poll picks them up automatically — no code change needed. Until then, UI sees only the 72 group-stage matches.
+- **Shootout in progress collapses to `live`.** status=5 (penalty shootout) → `'live'` in the 3-state model. UI cannot distinguish from regular play (flagged at `transform.ts:204-207`).
+- **No diacritic stripping** in `normaliseTeamName`. Variants list includes `Türkiye`, `Côte d'Ivoire`, `Cote d'Ivoire`, but it is brittle — first fixture row introducing a new accented form will miss.
+
+### 10.2 Backend robustness
+
+- **No HTTP retry / backoff / timeout** on `client.ts`. A flaky network silently drops one tick per loop; a stuck `fetch` could in principle hold a tick indefinitely (no `AbortController`).
+- **iSports app-error `code !== 0` only `console.warn`s** on poll loops. No metric, no alerting hook.
+- **SSE `res.write` is fire-and-forget.** No `drain` waits, no per-client buffer cap. Slow clients accumulate in the kernel send buffer.
+- **No rate limiting on `/command`** and CORS still `*`. Lockdown deferred to "Phase 3".
+- **Single-process state.** No clustering, no Redis. Restart loses tick state (relies on schedule poll to re-hydrate when iSports is enabled).
+
+### 10.3 Client gaps
+
+- **Vite proxy targets `http://localhost:3001`** (`vite.config.ts:14`). When the production bundle ships, both `/events` and `/command` must be served from the same origin as the static bundle, or the proxy target rewritten to the Tailscale Mac Mini address.
+- **Dead code in client**: `dialog.ts` (`confirm`/`alert`) unused; `renderPixelText` in `pngImage.ts:69` marked `@ts-expect-error unused`; `preloadFlags` / `getCachedFlag` exported but never called (G2 flag path is dead).
+- **Legacy local-mutation paths in client `store.ts`** (`applyEvent`, `resolveBracket`, `setMinute`, `touch`) superseded by server-authoritative `applyDelta`. Only `applyEvent` is used by the test suite; runtime never calls them. Candidate for removal.
+- **`pageView.ts` `stageLabel` shadow** — local `stageLabel` in `pageView.ts:56` duplicates exported `stageLabel` in `format.ts:3` (identical bodies). Duplication risk.
+
+### 10.4 Bracket UI
+
+- Mini-tree only shows QF→SF→F core. R16 and GS live in stage cards below — no tree drawing for them (would explode the 200×130 viewBox).
+- Bracket connector animations on goal resolutions not implemented (cosmetic).
+- 3rd-place omitted from mini-tree (no tree relationship to upstream).
+
+### 10.5 Asset / packaging
+
+- No `npm run pack` script wraps `evenhub pack` — manual workflow.
+- No README.md at repo root.
+- `EvenRosterGrotesk.otf` and `EvenSignature.otf` shipped in `public/fonts/` but not loaded by any JS (`pngImage.ts:16-21` only registers EvenTimeBigPixel). Either wire via CSS or drop to slim bundle.
+
+### 10.6 Tests
+
+- No Playwright E2E hooked up (Playwright is a devDep but no `playwright.config.ts`, no test files).
+- No fuzz / soak test against `/events`.
 
 ---
 
-## 11. Current build status
+## 11. References
 
-| Layer | Status |
-|---|---|
-| Mock tournament + scripted tick | Done |
-| iSports-shaped types (status enum, eventId) | Done |
-| Phone Matches view (Live + Upcoming, DL 3.0 styling) | Done |
-| Phone Detail view (events timeline + vote surface) | Done |
-| Phone Bracket — hybrid mini-tree + stage cards | Done |
-| **Phone bracket color coding (FT=yellow / Live=red / Upcoming+TBD=neutral)** | **Done** |
-| Phone toast + Cupertino dialogs | Done |
-| Phone no-zoom Flutter chrome | Done |
-| **Phone per-match vote — Detail-only (chips → percentage bar)** | **Done** |
-| **G2 Layer 1 — native LVGL list, half-width, item-select border** | **Done** |
-| **G2 Layer 2 — match detail (flags + tight codes + pixel score + 2-row event log)** | **Done** |
-| **G2 gestures — list `listItemEvent` drills in; double-tap exits / returns** | **Done** |
-| **G2 list includes Live + Upcoming + Past (not just past)** | **Done** |
-| **G2 plain text header (default LVGL font)** | **Done** |
-| **Score image — EvenTimeBigPixel at on-grid 80px + hand-drawn dash + threshold (preserves dot-matrix gaps)** | **Done** |
-| **Flag image — 16-shade inverted greyscale (phone-only; removed from G2 Layer 2)** | **Done** |
-| **G2 Layer 1 = today's schedule + stage-as-hero header (mirrors phone)** | **Done** |
-| **G2 Layer 2 = no flags; codes + VS use dedicated pixel-alphabet SVG atlas pipeline (`pixelAlphabet.ts`); score uses EvenTimeBigPixel + threshold** | **Done** |
-| **Score uses ":" with spaces via EvenTimeBigPixel; VS uses pixel-alphabet (style-consistent with codes)** | **Done** |
-| **Layer 2 reflow v2: codes lifted to short row (132×52) that sits ON the event log (bottom-of-code = top-of-log, no gap); event log now full-width 560×100 (was 288×108, "tiny bit shorter")** | **Done** |
-| **Layer 2 reflow v3: score (288×120) also sits on event log — its bottom edge meets y=180 like the codes; all three end at the same baseline. Header split into 2 rows (stage \\n status); header height bumped 20→44.** | **Done** |
-| **Bottom-aligned rendering INSIDE the image canvas: pixel-alphabet `offY = h - renderH` (was centered); score uses `textBaseline='alphabetic'` at `y=h` (was 'middle' at `h/2`). Container's bottom edge = visible glyph bottom = text-box top edge, no dead pixels below.** | **Done** |
-| **Header `\\n` bug fix: stage + status now asciiName-sanitized SEPARATELY before joining. Earlier `asciiName('A\\nB')` stripped the \\n (outside \\x20-\\x7E printable-ASCII range), collapsing both rows into one line. Event log already does it right (map asciiName then join).** | **Done** |
-| **Goal toast switched to Even-yellow variant** (`toast.toast-goal` — yellow bg + dark text, dedicated CSS class; `toast()` now takes `{variant: 'goal'}` opts). Default black/inverse toast preserved for non-goal events (vote confirm, etc.). | Done |
-| **Bracket FT color rule unified**: `mt-done` SVG fill + `br-card-done` background both switched from `--er-accent-yellow` to `--neutral-200`. Single coloring convention across mini-tree images + stage cards. | Done |
-| **Layer 2 reflow v4**: header bumped 44→56 (2-row content was clipping). Score band reshaped to 288×82 @ (144, 68); code row to 132×52 @ (·, 98). All three end at y=150 (was y=180); text box stays at y=180 — opens a 30 px gap that "lifts" the score + codes off the log. | Done |
-| **Phone topbar coverage fix**: topbar now extends background into wrap's 16 px horizontal padding via `margin: 0 calc(-1 * var(--s-4))` + matching internal padding. Top padding adds `env(safe-area-inset-top)` for notched phones. Brand + tabs stay aligned to the 16 px content gutters. | Done |
-| **Spec screenshots**: `scripts/render-g2-mockups.py` emits 4 PIL-rendered G2 PNGs (Layer 1 schedule, Layer 2 vs/live/ft) into `docs/images/` and is wired into §5. Phone surface PNGs are manual-capture placeholders in §6. | Done |
-| **Debug bar on phone surface**: bottom-fixed pill bar with "Start live game" + "Mbappé scores" buttons. Handlers in `src/phone/debug.ts`; reset path uses new `store.touch()` to re-emit notify without faking events. Strip when wiring real backend. | Done |
-| **Penalty shootout in data model**: `Match.homePenalty / awayPenalty` (nullable). `store.winnerOf` consults them on regulation ties so the Final auto-resolves. `format.ts` adds `hasShootout()` / `penaltyText()`; `listRight` (Layer 1 right column) appends `(4-3p)` for FT-shootout. Phone bracket card score line gets a `(3-4 pen)` suffix on `.br-pen` typography; `stageBadge` shows `FT · PEN`. Matches list rows + match detail view show the same suffix + `FT · PEN` label. | Done |
-| **G2 Layer 2 top-right PEN indicator**: dedicated 2-row text container at (436, 8, 132, 44) showing `PEN\n{h}-{a}`. Header width shrunk 560→420 to make room. Container is added to the page payload ONLY when `hasShootout(m)`; `statusVerbose` no longer carries PEN suffix (penalty has a single home in the UI, top-right). | Done |
-| **Penalty UI demoed via seed mock**: QF4 ESP vs POR seeded as a 2-2 / POR-wins-4-3-pen result so the penalty rendering is visible across the bracket + matches Results section + Layer 2 (when drilled in) without needing any debug action. | Done |
-| **PIL mockup updated**: FT frame in `docs/images/g2-layer-2-ft.png` now shows the new layout — header back to clean `FULL TIME`, top-right `PEN / 4-2` block, score 3:3, log highlights PEN 4-2 ARG WIN. | Done |
-| **Team-code mirror alignment**: `renderPixelAlphabetPng` gained `align: 'left'|'center'|'right'` option; `renderCodePng(code, w, h, side)` passes `'right'` for HOME and `'left'` for AWAY so letters lean toward the score and end up true mirror-symmetric about the canvas axis. Earlier floor-centered placement was off by 1–2 px because `(CODE_W − renderW)` is odd. Every dot still lands on an integer pixel. | Done |
-| **Penalty display persistence**: SF1 reseeded as the FT 3-3 / ARG-4-2-pen result so the PEN block is visible by default on Layer 2 without needing to drill into QF4. `pickFocusMatch` now prefers a recent shootout over upcoming matches when no live game is going (live > recent-shootout > upcoming > past). Final.home pre-resolved to ARG since the seed bypasses `applyEvent`'s auto-resolve path. | Done |
-| **Score font candidate set bumped back up to [80, 64, 50, 40, 32] — 80px lands cleanly on unitsPerEm=800 grid (10 canvas px per design cell)** | **Done** |
-| **Phone → Glasses navigation sync (tap match on phone → glasses Layer 2; phone back → glasses Layer 1)** | **Done** |
-| **Phone Matches tab: Results section added (past matches visible without switching to Bracket)** | **Done** |
-| **Bracket cards: single-row layout per match (was two-row home/away split)** | **Done** |
-| Lineage labels ("Winner QF1 vs Winner QF2") removed from bracket | Done |
-| Kickoff-reminder button + confirm dialog removed from MatchDetail | Done |
-| Team codes: now image-rendered via new pixel-alphabet SVG atlas (David supplied `even-pixel-alphabet.svg`); LVGL-text fallback removed | Done |
-| List capped at top 6 matches | Done |
-| List `event.listEvent` wiring (CLICK + DOUBLE_CLICK both via list channel) | Done |
-| **58 WC 2026 flag assets shipped + complete `TEAMS` registry** (48-team mock baseline + 10 iSports projection additions per #1A) | **Done** |
-| **iSports Phase 3 — adapter + pollers + tests + live smoke** (`server/isports/` module, `ENABLE_ISPORTS=true npm run server` gate, 72/104 schedule matches hydrating, decode patched to authoritative docs id=15 mappings) | **Done** |
-| **Stage-as-hero phone header** (auto-derived from bracket state; no fixed app name, no product tagline) | **Done** |
-| Font loading (local @font-face, FK + EvenTimeBigPixel) | Done |
-| `state/liveClock.ts` → `state/mockServer.ts` rename | Done |
-| `state/nav.ts` removal | Done |
-| Real iSports relay wiring | Deferred to v2 |
-| Lineup tab on phone | Deferred to v2 |
+### Feishu
 
----
+- Architecture doc: `https://luckwhale.feishu.cn/docx/EsiLducSSoIJsRx6kN8ccyIlnse`
+- Spec doc (this file's canonical home): `[Ops] WorldCup Spec.md` — same `docx/EsiLducSSoIJsRx6kN8ccyIlnse` id
 
-## 12. Outstanding work
+### iSports
 
-### P0 — none currently. All open feedback addressed in this iteration.
+- API docs (login required): `https://www.isportsapi.com/docs/`
+- Events docs page id=15 (cached locally at `server/isports-docs.txt`)
+- Tier limits: `/livescore` singular, `/lineup`, `/competition`, `/odds` return `code=2 "haven't purchased"` (`server/isports/client.ts:12-13`)
+- League id used: `1572` (FIFA World Cup 2026)
+- Product id (informational): 219
 
-### P1 — polish backlog
-- Verify the mini-tree's brand-yellow FT fill at small viewport (mobile) doesn't clash with stroke color.
-- Consider scroll affordance hint on G2 Layer 1 if list grows beyond visible area (8 matches at default item height should fit cleanly in 272px tall, but worth checking).
-- Layer 2 swipe up/down to cycle to prev/next match (currently no swipe — back-out then re-enter).
+### Repo
 
-### P2 — clean-up
-- Audit LVGL artifacts (stray vertical bars from glyph fallback) on real hardware — mitigations in place (`asciiName`, fixed container heights), but worth a careful pass.
+- GitHub: `https://github.com/LesenmiaoYu/even-hub-worldcup`
+- Mac Mini deploy host: `claw` (Tailscale alias for `davidbot@100.92.207.10`)
+- launchd label: `com.even.wc-server`
+- Server logs: `/Users/davidbot/Library/Logs/wc-server.{log,err.log}`
 
-### P3 — backend wiring
-- Stand up Mac Mini-based iSports poller per §8.3 Phase 0 architecture.
-- Cloudflare Tunnel for stable public endpoint.
-- Implement `/api/matches/{id}/vote` + WS channel per match.
-- Swap `src/state/mockServer.ts` for WS subscription. Client rendering unchanged.
+### Internal memory pointers
 
-### Pn — deferred
-- Lineup tab on phone (mock starting XI).
-- Goal celebration animation on phone (optional polish).
-- Stats / H2H / Match Preview tabs.
-
----
-
-## 13. Process notes & references
-
-- **Architecture doc** mirrored to Feishu `docx/EsiLducSSoIJsRx6kN8ccyIlnse` (322 blocks, 1 native mermaid).
-- **G2 design references** from public design guidelines Figma `X82y5uJvqMH95jgOfmV34j`: Navigate-Walking (`8523:22973`), Dashboard-News (`8554:18930`), Dashboard-News-List (`8534:1968`), Teleprompt (`8399:54259`). PNGs cached in `/tmp/even-os-refs/`.
-- **WC widget design reference** (text-based two-half pattern) in Figma `8iXKFSKUc2V7MzaF3VvCEA` node `13251:751553`. Cached at `/tmp/even-os-refs/wc-widget-ref.png`.
-- **iSports docs:** https://www.isportsapi.com/en/products/detail/football-api-product-219.html
-- **Even font wiki:** Feishu `TQmewzuY6iamnNkImHtcsP5rndf` — pixel font OS-only rule + EN↔CN pairings.
-
-Memory pointers (persist across `/compact`):
-- `project_worldcup_evenhub.md` — this project's index
-- `reference_even_font_usage.md` — font rules
-- `even_brand_colors.md`, `even_brand_typography.md`, `even_design_system.md` — Even DL 3.0
-- `reference_g2_display_geometry.md` — 576×288 canvas, bi-display offsets
-
-**David's hard rules to follow:**
-- ZERO emojis in any output (code, docs, chat, tool descriptions).
-- ASCII-only on G2 text containers (LVGL drops accents / smart quotes / em-dashes / middle-dots as fallback rectangles).
-- Light mode only on phone.
-- Pixel fonts (EvenTimeBigPixel, 20px/22px pixel grotesks) are OS-only as font files. Using them inside our app to rasterize bitmaps for G2 image containers is OK.
-- Never overwrite a user-edited file without re-reading it first.
-- Image containers on G2 cap at 288×144 (sim-enforced).
-- `ListContainerProperty` with `isEventCapture=1` emits `listItemEvent`, not `CLICK_EVENT` — handle accordingly.
+- `project_worldcup_evenhub.md` — running project memo
+- `reference_g2_display_geometry.md` — 576×288 canvas + bi-display rules
+- `reference_lark_mcp.md` — Feishu MCP credentials for the publisher agent
+- `feedback_doc_style_no_emojis_link_dont_paste.md` — zero-emoji hard rule (this doc honours it)
+- `feedback_feishu_verify_doc_before_write.md` — verify doc title via API before any append/patch
