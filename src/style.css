@@ -58,7 +58,7 @@
   --os-green:      #3CFA44;
 
   /* System tokens — Light theme */
-  --bg-page:   var(--neutral-100);   /* page canvas — light gray, reference */
+  --bg-page:   #EEEEEE;              /* page canvas — Even Hub app background */
   --surface-0: var(--neutral-0);     /* card bg — pure white */
   --surface-1: var(--neutral-100);   /* chip / inset bg */
   --surface-2: var(--neutral-200);   /* nested surface */

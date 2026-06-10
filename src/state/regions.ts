@@ -148,3 +148,19 @@ export const DEFAULT_IANA = "America/New_York"
 export const REGION_BY_IANA: Record<string, RegionOption> = Object.fromEntries(
   REGIONS.map(r => [r.iana, r]),
 )
+
+/* Country (ISO 3166-1 alpha-2) → first matching RegionOption. Used to map
+ * EvenAppBridge.getUserInfo().country into a sensible default IANA timezone
+ * when the user hasn't picked one explicitly. For multi-zone countries
+ * (US, CA, RU, AU, BR, CN, ID, MX, KZ) the first REGIONS entry wins — that
+ * means the capital / primary commercial zone listed first in the catalog. */
+export const REGION_BY_COUNTRY: Record<string, RegionOption> = REGIONS.reduce<Record<string, RegionOption>>((acc, r) => {
+  if (!acc[r.country]) acc[r.country] = r
+  return acc
+}, {})
+
+export function ianaForCountry(country: string | null | undefined): string | null {
+  if (!country) return null
+  const r = REGION_BY_COUNTRY[country.toUpperCase()]
+  return r?.iana ?? null
+}
