@@ -11,7 +11,8 @@ import {
 import type { Match } from '../types'
 import { store } from '../state/store'
 import {
-  statusVerbose, scoreText, eventChip, listLeft, listRight, asciiName, hasShootout, kickoffGlassesLabel,
+  statusVerbose, scoreText, eventChip, listLeft, listRight, asciiName, hasShootout,
+  kickoffGlassesLabel, isMatchToday, nextKickoffLabel,
 } from './format'
 import { renderScorePng, renderVsPng, renderCodePng } from './pngImage'
 
@@ -355,11 +356,20 @@ function listHeaderText(): string {
               : focus === 'SF'  ? 'SEMIFINALS'
               : focus === '3rd' ? '3RD PLACE'
               : 'FINAL'
-  const shown = listMatches()
-  const liveCount = shown.filter(m => m.state === 'live').length
-  const sub = shown.length === 0 ? 'No matches'
-            : liveCount > 0 ? `${shown.length} today, ${liveCount} live`
-            : `${shown.length} today`
+  /* Sub line must be honest about TODAY. "Today" = same calendar date
+   * in user TZ. If no matches today, fall back to a "Next: <when>" hint
+   * so the line still tells the user something useful. */
+  const todayMatches = all.filter(isMatchToday)
+  const liveCount = todayMatches.filter(m => m.state === 'live').length
+  let sub: string
+  if (todayMatches.length === 0) {
+    const next = nextKickoffLabel(all)
+    sub = next || 'No matches'
+  } else if (liveCount > 0) {
+    sub = `${todayMatches.length} today, ${liveCount} live`
+  } else {
+    sub = `${todayMatches.length} today`
+  }
   return asciiName(`${title}    ${sub}`)
 }
 

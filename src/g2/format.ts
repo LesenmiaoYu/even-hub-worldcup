@@ -34,6 +34,31 @@ export function kickoffGlassesLabel(m: Match): string {
 function isSameDayInZone(a: Date, b: Date, tz: string): boolean {
   return ymdInZone(a, tz) === ymdInZone(b, tz)
 }
+
+/* "Is this match's kickoff (or live state) on today's calendar date in
+ * the user's timezone?" Used by the L1 header to give an honest count
+ * instead of pretending the next 5 upcoming are all today. */
+export function isMatchToday(m: Match): boolean {
+  if (m.state === 'live') return true
+  if (!m.kickoffAt) return false
+  const tz = settingsStore.get().timezone
+  return isSameDayInZone(new Date(), new Date(m.kickoffAt), tz)
+}
+
+/* Short "Next: <when>" label for the L1 header when nothing is on today.
+ * Tomorrow → "Next: Tomorrow", later → "Next: MM/DD". */
+export function nextKickoffLabel(matches: Match[]): string {
+  const tz = settingsStore.get().timezone
+  const upcoming = matches
+    .filter(m => m.state === 'scheduled' && m.kickoffAt)
+    .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
+  const m = upcoming[0]
+  if (!m || !m.kickoffAt) return ''
+  const now = new Date()
+  const kick = new Date(m.kickoffAt)
+  if (isSameDayInZone(addDays(now, 1), kick, tz)) return 'Next Tomorrow'
+  return `Next ${formatMD(kick, tz)}`
+}
 function ymdInZone(d: Date, tz: string): string {
   try {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
