@@ -3,13 +3,43 @@ import { Store } from '../src/state/store'
 import type { Delta } from '../src/state/serverClient'
 import type { Match } from '../src/types'
 
-/* Each test gets a brand-new Store — the singleton in src/state/store.ts
- * is wired to the seed (which we want for the SSE flow in production)
- * but tests need a clean slate so previous mutations don't leak. */
+/* Each test gets a brand-new Store + a fresh fixture set. Store is empty
+ * on construction (prod hydrates from SSE) so tests inject their own
+ * matches via replaceAll. */
 let store: Store
+
+function blankMatch(overrides: Partial<Match>): Match {
+  return {
+    id: 'x',
+    stage: 'QF',
+    home: 'ARG',
+    away: 'BRA',
+    homeScore: null,
+    awayScore: null,
+    homePenalty: null,
+    awayPenalty: null,
+    minute: null,
+    state: 'scheduled',
+    kickoffOffsetMin: 0,
+    events: [],
+    ...overrides,
+  }
+}
+
+/* Fixture: a minimal QF + SF + Final shape that exercises bracket
+ * resolution (Final.home resolves from sf1's winner). */
+function loadFixtures(): void {
+  store.replaceAll([
+    blankMatch({ id: 'qf1', stage: 'QF', home: 'ARG', away: 'NED', homeScore: 1, awayScore: 0, minute: 90, state: 'ft' }),
+    blankMatch({ id: 'sf1', stage: 'SF', home: 'ARG', away: 'FRA', minute: null, state: 'scheduled' }),
+    blankMatch({ id: 'sf2', stage: 'SF', home: 'BRA', away: 'POR', minute: null, state: 'scheduled' }),
+    blankMatch({ id: 'final', stage: 'F', home: null, away: null, minute: null, state: 'scheduled', resolvesFrom: { home: 'sf1', away: 'sf2' } }),
+  ])
+}
 
 beforeEach(() => {
   store = new Store()
+  loadFixtures()
 })
 
 describe('Store.applyEvent', () => {
@@ -32,17 +62,12 @@ describe('Store.applyEvent', () => {
   })
 
   it('sets state=ft AND resolves bracket when an FT event lands on sf1', () => {
-    /* sf1 is wired as Final.home via resolvesFrom. Reset sf1 to a live
-     * 2-1 ARG win, then fire FT and check Final.home reflects ARG. */
     const sf1 = store.get('sf1')!
     sf1.state = 'live'
     sf1.minute = 90
     sf1.homeScore = 2
     sf1.awayScore = 1
-    sf1.homePenalty = null
-    sf1.awayPenalty = null
 
-    /* Clear Final.home so we can prove resolveBracket re-set it. */
     const final = store.get('final')!
     final.home = null
 
@@ -54,9 +79,6 @@ describe('Store.applyEvent', () => {
 })
 
 describe('Store.winnerOf (via FT → bracket-resolved)', () => {
-  /* winnerOf is private; exercise it via the public FT path. The Final
-   * has resolvesFrom.home === 'sf1', so whichever team we leave as the
-   * sf1 winner ends up in final.home. */
   function fireFt(overrides: Partial<Match>) {
     Object.assign(store.get('sf1')!, { state: 'live', ...overrides })
     store.get('final')!.home = null
@@ -80,10 +102,6 @@ describe('Store.winnerOf (via FT → bracket-resolved)', () => {
     ).toBe('FRA')
   })
   it('falls back to home when tied with no shootout (current behavior — document the wart)', () => {
-    /* Knockout matches in real life never end tied without a shootout,
-     * but the store's winnerOf has a "return m.home" fallback. Pin it
-     * here so anyone who tightens this path makes the tradeoff
-     * deliberately. */
     expect(
       fireFt({ home: 'ARG', away: 'FRA', homeScore: 1, awayScore: 1, homePenalty: null, awayPenalty: null }),
     ).toBe('ARG')
@@ -106,20 +124,7 @@ describe('Store.replaceAll', () => {
     const spy = vi.fn()
     store.subscribe(spy)
     const tiny: Match[] = [
-      {
-        id: 'only',
-        stage: 'F',
-        home: 'USA',
-        away: 'MEX',
-        homeScore: 0,
-        awayScore: 0,
-        homePenalty: null,
-        awayPenalty: null,
-        minute: 1,
-        state: 'live',
-        kickoffOffsetMin: 0,
-        events: [],
-      },
+      blankMatch({ id: 'only', stage: 'F', home: 'USA', away: 'MEX', homeScore: 0, awayScore: 0, minute: 1, state: 'live' }),
     ]
     store.replaceAll(tiny)
     expect(store.getAll()).toEqual(tiny)
@@ -168,20 +173,10 @@ describe('Store.applyDelta', () => {
   it('reset: replaces a single match with the included snapshot and notifies', () => {
     const spy = vi.fn()
     store.subscribe(spy)
-    const fresh: Match = {
-      id: 'sf1',
-      stage: 'SF',
-      home: 'ARG',
-      away: 'FRA',
-      homeScore: 0,
-      awayScore: 0,
-      homePenalty: null,
-      awayPenalty: null,
-      minute: 1,
-      state: 'live',
-      kickoffOffsetMin: 0,
-      events: [],
-    }
+    const fresh: Match = blankMatch({
+      id: 'sf1', stage: 'SF', home: 'ARG', away: 'FRA', minute: 1, state: 'live',
+      homeScore: 0, awayScore: 0,
+    })
     store.applyDelta({ type: 'reset', matchId: 'sf1', match: fresh })
     expect(store.get('sf1')).toEqual(fresh)
     expect(spy).toHaveBeenCalledTimes(1)

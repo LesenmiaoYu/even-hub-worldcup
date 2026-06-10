@@ -1,7 +1,6 @@
 import { waitForEvenAppBridge, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import { store } from './state/store'
 import { openServerConnection } from './state/serverClient'
-import { DEMO_MODE } from './state/demoMode'
 import {
   buildDetailPage, buildListPage,
   makeEventLogUpgrade, makeHeaderTextUpgrade, makeScoreUpdate,
@@ -179,11 +178,18 @@ setPhoneNavListener(async (event) => {
   }
 })
 
-await bootList()
-/* Demo build (VITE_DEMO_MODE=true) ships without a backend — store is
- * already seeded from getInitialMatches() and debug handlers mutate it
- * directly, so the SSE connection is skipped. */
-if (!DEMO_MODE) openServerConnection()
+/* Deep-link: #match=<id> opens straight into Layer 2 for that match
+ * (skipping L1). Falls through to L1 if the id is unknown or hash is
+ * absent. Useful for sharing a URL that lands on a specific game. */
+const hashMatch = (typeof window !== 'undefined' && window.location?.hash || '').match(/match=([a-z0-9_-]+)/i)
+if (hashMatch && getMatchById(hashMatch[1])) {
+  view = 'detail'
+  currentMatchId = hashMatch[1]
+  await fullRenderDetail()
+} else {
+  await bootList()
+}
+openServerConnection()
 
 store.subscribe(() => {
   renderPhone()

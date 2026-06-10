@@ -245,6 +245,18 @@ export function transformMatch(
     minute = m > 0 ? m : null
   }
 
+  /* iSports matchTime is Unix seconds. Convert to ISO for kickoffAt
+   * (consumed by bracket badges + glasses kickoff label) and to a
+   * relative offset in minutes for the legacy kickoffOffsetMin field
+   * (consumed by the glasses upcoming-list sort + countdown text). */
+  let kickoffAt: string | undefined
+  let kickoffOffsetMin = 0
+  if (raw.matchTime && raw.matchTime > 0) {
+    const ms = raw.matchTime * 1000
+    kickoffAt = new Date(ms).toISOString()
+    kickoffOffsetMin = Math.round((ms - Date.now()) / 60000)
+  }
+
   const out: Match = {
     id: raw.matchId,
     stage,
@@ -256,11 +268,10 @@ export function transformMatch(
     awayPenalty,
     minute,
     state,
-    /* kickoffOffsetMin isn't in iSports — leave 0 so seed/scripted ticks
-     * don't get confused. The live adapter never schedules ticks. */
-    kickoffOffsetMin: 0,
+    kickoffOffsetMin,
     events: [],
   }
+  if (kickoffAt) out.kickoffAt = kickoffAt
   if (raw.location) out.venue = raw.location
   return out
 }

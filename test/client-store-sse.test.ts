@@ -92,7 +92,7 @@ describe('openServerConnection', () => {
     const spy = vi.spyOn(storeMod.store, 'applyDelta')
     mod.openServerConnection()
     const es = FakeEventSource.instances[0]!
-    const delta = { type: 'minute', matchId: 'sf1', minute: 42 }
+    const delta = { type: 'minute', matchId: 'm1', minute: 42 }
     es.dispatch('delta', delta)
     expect(spy).toHaveBeenCalledTimes(1)
     expect(spy.mock.calls[0]![0]).toEqual(delta)
@@ -118,34 +118,3 @@ describe('openServerConnection', () => {
   })
 })
 
-describe('postCommand', () => {
-  it('POSTs JSON {command,...payload} to /command and returns parsed body', async () => {
-    const mod = await loadFresh()
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: async () => ({ ok: true, pong: true }),
-    })
-    ;(globalThis as { fetch: unknown }).fetch = fetchMock as unknown as typeof fetch
-
-    const out = await mod.postCommand('ping', { extra: 1 })
-    expect(out).toEqual({ ok: true, pong: true })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/command')
-    expect(opts.method).toBe('POST')
-    expect((opts.headers as Record<string, string>)['Content-Type']).toBe('application/json')
-    const sentBody = JSON.parse(opts.body as string)
-    expect(sentBody).toEqual({ command: 'ping', extra: 1 })
-  })
-
-  it('returns synthesized {ok:false,error} on fetch failure', async () => {
-    const mod = await loadFresh()
-    ;(globalThis as { fetch: unknown }).fetch = vi
-      .fn()
-      .mockRejectedValue(new Error('boom')) as unknown as typeof fetch
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const out = await mod.postCommand('start_live')
-    expect(out.ok).toBe(false)
-    expect(out.error).toBe('boom')
-  })
-})

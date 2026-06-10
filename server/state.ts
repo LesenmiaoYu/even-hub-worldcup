@@ -1,5 +1,4 @@
 import type { Match, MatchEvent, TeamCode } from './types.ts'
-import { getInitialMatches, LIVE_TICK } from './seed.ts'
 
 /* Delta shapes broadcast on the SSE stream. Kept in this file so the
  * server protocol lives in one place. Client mirrors this in Phase 1. */
@@ -31,10 +30,11 @@ export type Delta =
 export type DeltaListener = (delta: Delta) => void
 
 export class MatchStore {
-  private matches: Match[] = getInitialMatches()
+  /* Starts empty. server/index.ts hydrates via iSports on boot, then
+   * pollers feed deltas in. Clients connecting before hydrate finishes
+   * just get an empty snapshot — the first poll fills them in via SSE. */
+  private matches: Match[] = []
   private listeners = new Set<DeltaListener>()
-  private firedTickMinutes = new Set<number>()
-  private tickHandle: ReturnType<typeof setInterval> | null = null
 
   /* ---------- read ---------- */
 
@@ -59,13 +59,8 @@ export class MatchStore {
     if (scoreDelta?.home && m.homeScore !== null) m.homeScore += scoreDelta.home
     if (scoreDelta?.away && m.awayScore !== null) m.awayScore += scoreDelta.away
 
-    /* FT terminates the match and may cascade into the bracket. We stop
-     * the tick BEFORE resolving so a subsequent setInterval callback
-     * doesn't sneak a minute=95 onto a finished match. */
-    if (event.type === 'ft') {
-      m.state = 'ft'
-      this.stopTick()
-    }
+    /* FT terminates the match and may cascade into the bracket. */
+    if (event.type === 'ft') m.state = 'ft'
 
     this.emit({
       type: 'event-applied',
@@ -75,9 +70,7 @@ export class MatchStore {
       match: structuredClone(m),
     })
 
-    if (event.type === 'ft') {
-      this.resolveBracket(matchId)
-    }
+    if (event.type === 'ft') this.resolveBracket(matchId)
   }
 
   setMinute(matchId: string, minute: number): void {
@@ -97,8 +90,6 @@ export class MatchStore {
    * "blow away and reseed" tool. */
   replaceAll(matches: Match[]): void {
     this.matches = matches
-    this.firedTickMinutes.clear()
-    this.stopTick()
     for (const m of matches) {
       this.emit({ type: 'reset', matchId: m.id, match: structuredClone(m) })
     }
@@ -179,36 +170,6 @@ export class MatchStore {
     }
   }
 
-  /* Reset SF1 back to a fresh kickoff. Ported from
-   * src/phone/debug.ts → debugStartLiveGame, but here it also kicks the
-   * server-owned tick. */
-  startLive(matchId: string): boolean {
-    const m = this.get(matchId)
-    if (!m) return false
-
-    m.state = 'live'
-    m.minute = 1
-    m.homeScore = 0
-    m.awayScore = 0
-    m.homePenalty = null
-    m.awayPenalty = null
-    m.events = []
-    m.kickoffOffsetMin = 0
-
-    /* Clear any downstream slots that were resolved off this match. */
-    for (const dep of this.matches) {
-      if (dep.resolvesFrom?.home === matchId) dep.home = null
-      if (dep.resolvesFrom?.away === matchId) dep.away = null
-    }
-
-    this.firedTickMinutes.clear()
-    this.stopTick()
-
-    this.emit({ type: 'reset', matchId, match: structuredClone(m) })
-    this.startTick(matchId)
-    return true
-  }
-
   /* ---------- bracket ---------- */
 
   private resolveBracket(finishedMatchId: string): void {
@@ -243,45 +204,6 @@ export class MatchStore {
       return m.homePenalty >= m.awayPenalty ? m.home : m.away
     }
     return m.home
-  }
-
-  /* ---------- tick ---------- */
-
-  private startTick(matchId: string): void {
-    /* Only sf1 has a script today. Guard so future callers don't get a
-     * silent no-op tick on other ids. */
-    if (matchId !== LIVE_TICK.matchId) return
-
-    const cfg = LIVE_TICK
-    this.tickHandle = setInterval(() => {
-      const m = this.get(cfg.matchId)
-      if (!m || m.state !== 'live' || m.minute === null) {
-        this.stopTick()
-        return
-      }
-
-      const next = m.minute + 1
-      this.setMinute(cfg.matchId, next)
-
-      /* Fire any scripted events whose minute we've now reached. The
-       * applyEvent path will stop the tick on FT — break out of the loop
-       * the moment FT lands so trailing entries at the same minute can't
-       * mutate a finished match. */
-      for (const tick of cfg.script) {
-        if (tick.minute <= next && !this.firedTickMinutes.has(tick.minute)) {
-          this.firedTickMinutes.add(tick.minute)
-          this.applyEvent(cfg.matchId, tick.event, tick.scoreDelta)
-          if (tick.event.type === 'ft') break
-        }
-      }
-    }, cfg.msPerMinute)
-  }
-
-  private stopTick(): void {
-    if (this.tickHandle !== null) {
-      clearInterval(this.tickHandle)
-      this.tickHandle = null
-    }
   }
 
   /* ---------- pub/sub ---------- */

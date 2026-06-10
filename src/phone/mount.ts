@@ -4,7 +4,6 @@ import type { Match, Stage, TeamCode } from '../types'
 import { toast } from './toast'
 import { renderBracketSvg } from './bracketSvg'
 import { castVote, getTallySync, getUserVote, type Side, type VoteTally } from './support'
-import { debugStartLiveGame, debugMbappeGoal, debugSubstitution } from './debug'
 import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 
 type View = 'matches' | 'bracket' | 'detail'
@@ -43,13 +42,17 @@ export function mountPhone() {
       <div id="location-strip"></div>
       <main id="content"></main>
     </div>
-    <div class="debug-bar" role="toolbar" aria-label="debug controls">
-      <button data-debug="start-live" class="debug-btn">Start live game</button>
-      <button data-debug="mbappe-goal" class="debug-btn">Mbappé scores</button>
-      <button data-debug="sub" class="debug-btn">Sub (FRA)</button>
-    </div>
   `
   root.addEventListener('click', onClick)
+
+  /* Deep-link: #match=<id> opens straight into Detail view for that
+   * match. main.ts has a mirror check that routes the glasses-side L2. */
+  const hash = (typeof window !== 'undefined' && window.location?.hash) || ''
+  const m = hash.match(/match=([a-z0-9_-]+)/i)
+  if (m && store.get(m[1])) {
+    view = 'detail'
+    detailMatchId = m[1]
+  }
 
   store.subscribe(() => detectGoals())
   void initSettings().then(() => { renderLocation(); renderPhone() })
@@ -100,6 +103,8 @@ async function onClick(e: Event) {
   if (tabBtn?.dataset.view) {
     const v = tabBtn.dataset.view as View
     if (v === 'matches' || v === 'bracket') {
+      /* Disabled tab — bracket is empty when store has no matches. */
+      if ((tabBtn as HTMLButtonElement).disabled) return
       const wasDetail = view === 'detail'
       view = v
       detailMatchId = null
@@ -125,14 +130,6 @@ async function onClick(e: Event) {
     syncTabs()
     renderPhone()
     emitNav({ type: 'exit-detail' })
-    return
-  }
-
-  const debugBtn = target.closest<HTMLElement>('[data-debug]')
-  if (debugBtn?.dataset.debug) {
-    if (debugBtn.dataset.debug === 'start-live') debugStartLiveGame()
-    else if (debugBtn.dataset.debug === 'mbappe-goal') debugMbappeGoal()
-    else if (debugBtn.dataset.debug === 'sub') debugSubstitution()
     return
   }
 
@@ -162,9 +159,14 @@ function wasInBracket(): boolean {
 
 function syncTabs() {
   const tabs = document.querySelectorAll('#tabs button')
+  const bracketEmpty = store.getAll().length === 0
   tabs.forEach((b) => {
     const el = b as HTMLButtonElement
     el.classList.toggle('active', el.dataset.view === (view === 'detail' ? 'matches' : view))
+    if (el.dataset.view === 'bracket') {
+      el.disabled = bracketEmpty
+      el.classList.toggle('disabled', bracketEmpty)
+    }
   })
 }
 
@@ -380,8 +382,13 @@ const STAGE_NAMES: Record<Stage, string> = {
 
 function stageInfo(): { title: string; sub: string } {
   const all = store.getAll()
-  const order: Stage[] = ['QF', 'SF', '3rd', 'F']
-  let focus: Stage = 'F'
+  /* Empty store (cold boot before SSE snapshot lands, or iSports
+   * outage) → neutral fallback so we don't claim we're at the Final. */
+  if (all.length === 0) return { title: 'World Cup', sub: 'Awaiting data' }
+  /* Walk WC progression order. First stage that has matches AND isn't
+   * fully FT wins the focus. */
+  const order: Stage[] = ['GS', 'R16', 'QF', 'SF', '3rd', 'F']
+  let focus: Stage = 'GS'
   for (const s of order) {
     const inStage = all.filter(m => m.stage === s)
     if (inStage.length === 0) continue
@@ -419,6 +426,7 @@ function renderStageHeader() {
 
 export function renderPhone() {
   renderStageHeader()
+  syncTabs()
   const content = document.querySelector<HTMLElement>('#content')
   if (!content) return
   if (view === 'detail') content.innerHTML = renderDetail()

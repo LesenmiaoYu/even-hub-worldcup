@@ -1,41 +1,34 @@
 import { store } from './state.ts'
 import { createApp, closeApp } from './app.ts'
-import { hydrateFromIsports, startIsportsPollers, type PollerHandle } from './isports/poller.ts'
+import { hydrateFromIsports, startIsportsPollers } from './isports/poller.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 
-/* ENABLE_ISPORTS toggles between the mock seed (default) and live
- * iSports hydration + pollers. Accepted truthy values: 'true' / '1' /
- * 'yes' (case-insensitive). Anything else — including unset — leaves
- * the server on the existing mock path so dev/CI keeps working. */
-function isIsportsEnabled(): boolean {
-  const v = (process.env.ENABLE_ISPORTS ?? '').toLowerCase().trim()
-  return v === 'true' || v === '1' || v === 'yes'
-}
-
 async function main(): Promise<void> {
-  let pollers: PollerHandle | null = null
-
-  if (isIsportsEnabled()) {
-    console.log('[wc-server] iSports mode enabled — hydrating from /schedule before listen…')
+  console.log('[wc-server] hydrating from iSports /schedule before listen…')
+  try {
     await hydrateFromIsports(store)
-    pollers = startIsportsPollers(store)
-  } else {
-    console.log('[wc-server] mock mode — using server/seed.ts')
+  } catch (err) {
+    /* Boot must not fail just because iSports is unreachable or
+     * rate-limited. Start with an empty store; the pollers below will
+     * keep retrying and fill the store the moment iSports recovers.
+     * Clients connected during the gap just see an empty snapshot and
+     * pick up later deltas. */
+    console.error('[wc-server] iSports hydrate failed — starting empty, pollers will retry:', err)
   }
+  const pollers = startIsportsPollers(store)
 
   const handle = createApp({ store })
 
   handle.server.listen(PORT, () => {
     console.log(`[wc-server] listening on http://localhost:${PORT}`)
-    console.log(`[wc-server] GET  /events    (SSE)`)
-    console.log(`[wc-server] POST /command   start_live | mbappe_goal | sub | ping`)
-    console.log(`[wc-server] GET  /health`)
+    console.log(`[wc-server] GET /events  (SSE)`)
+    console.log(`[wc-server] GET /health`)
   })
 
   const shutdown = (signal: string) => {
     console.log(`[wc-server] ${signal} received — shutting down`)
-    if (pollers) pollers.stop()
+    pollers.stop()
     void closeApp(handle).then(() => process.exit(0))
   }
   process.on('SIGTERM', () => shutdown('SIGTERM'))

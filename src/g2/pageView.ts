@@ -22,17 +22,17 @@ import { renderScorePng, renderVsPng, renderCodePng } from './pngImage'
  * starts at y=180 — 30 px BELOW that baseline so codes/score "lift off"
  * the log instead of being glued to it. */
 const HEADER_X = 8,   HEADER_Y = 8,   HEADER_W = 404, HEADER_H = 56
-const PEN_X    = 420, PEN_Y    = 8,   PEN_W    = 148, PEN_H    = 44
+const PEN_X    = 420, PEN_Y    = 8,   PEN_W    = 148, PEN_H    = 64
 const SCORE_X = 144,  SCORE_Y = 68,   SCORE_W = 288, SCORE_H = 82
 const CODE_W = 132,   CODE_H = 52,    CODE_Y = 98
 const HOME_CODE_X = 4
 const AWAY_CODE_X = 440
-/* Event log fills from just under the score baseline (y=150 +2 breathing
- * room) down to the canvas bottom (288). Was LOG_Y=180/LOG_H=108 — too
- * short, the SDK was clipping more than 2 rows and the firmware drew its
- * scrollbar. Now 152..288 = 136px tall, fits the typical match's log. */
-const LOG_X = 8,      LOG_Y = 152,    LOG_W = 560,   LOG_H = 136
-const LOG_ROWS = 6
+/* Event log — three-row strip pinned to the bottom of the canvas. The
+ * earlier 6-row box read as visually heavy and the unused rows showed as
+ * empty bands (joined '\n's were rendering as blank lines). Three rows of
+ * ~22 px + 8 px padding = ~82 px tall. */
+const LOG_X = 8,      LOG_Y = 200,    LOG_W = 560,   LOG_H = 82
+const LOG_ROWS = 3
 
 /* Layer 1 — header row (stage-as-hero) + two leveled lists.
  * Left list = matchup (interactive). Right list = status/score (display-only). */
@@ -78,16 +78,13 @@ function eventLogLines(m: Match): string[] {
   if (m.state === 'scheduled') {
     /* kickoffGlassesLabel returns one of: 'Today, in 2h' / 'Today, in 45m'
      * / 'Tomorrow, 3PM' / '7/15 3PM'. ASCII-only, safe for the LVGL
-     * firmware font in this text container. */
-    const when = kickoffGlassesLabel(m)
-    const lines = [asciiName(`Kicks off ${when}`)]
-    while (lines.length < LOG_ROWS) lines.push('')
-    return lines
+     * firmware font in this text container. No empty-line padding —
+     * trailing '\n's were rendering as visible blank rows. */
+    return [asciiName(`Kicks off ${kickoffGlassesLabel(m)}`)]
   }
-  /* Show the whole match log, newest first. SDK clips at LOG_H so older
-   * events fall off the bottom naturally. LOG_ROWS is now just the
-   * empty-state padding floor (kickoff / "match underway"). */
-  const events = [...m.events].reverse()
+  /* Most-recent first, cap at LOG_ROWS (3). No trailing blank padding —
+   * the SDK draws each '\n' as a real line and they read as empty rows. */
+  const events = [...m.events].reverse().slice(0, LOG_ROWS)
   const lines = events.map(e => {
     const min = String(e.minute).padStart(2, ' ')
     const chip = (eventChip(e) || '   ').padEnd(4, ' ')
@@ -104,7 +101,6 @@ function eventLogLines(m: Match): string[] {
     return asciiName(`${min}'  ${chip}  ${who}`.trim())
   })
   if (lines.length === 0) lines.push(asciiName('Match underway'))
-  while (lines.length < LOG_ROWS) lines.push('')
   return lines
 }
 
@@ -324,42 +320,46 @@ export interface ListPageRender {
  * days carry 1–4. "Today" = live + upcoming within next 24h. Past matches live
  * on the phone's Bracket tab — glasses stay glanceable. */
 function listMatches(): Match[] {
-  /* Glasses-side rule: "fill as many as possible, cap at 6, never TBD."
-   * Order = live → upcoming (soonest first) → past (most recent first).
-   * The 24h horizon is gone — the goal is to populate every slot the
-   * tournament can fill so the HUD never reads as half-empty. */
-  const settled = (m: Match) => m.home != null && m.away != null
-  const live = store.getLive().filter(settled)
-  const upcoming = store.getUpcoming()
-    .filter(settled)
+  /* Glasses-side rule: "UPCOMING 5 with definitive schedule + parties."
+   * Strictly future fixtures (state='scheduled'), both home AND away
+   * resolved, AND a real kickoffAt on the match. No live, no past.
+   * Sorted by soonest kickoff, cap at 5. */
+  return store.getUpcoming()
+    .filter(m => m.home != null && m.away != null && !!m.kickoffAt)
     .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
-  const past = store.getPast()
-    .filter(settled)
-    .sort((a, b) => b.kickoffOffsetMin - a.kickoffOffsetMin)
-  return [...live, ...upcoming, ...past].slice(0, 6)
+    .slice(0, 5)
 }
 
 /* Header row mirrors phone stage-as-hero: title = current bracket stage,
  * sub = live/upcoming summary for today. */
 function listHeaderText(): string {
   const all = store.getAll()
-  const order: Array<'QF'|'SF'|'3rd'|'F'> = ['QF', 'SF', '3rd', 'F']
-  let focus: 'QF'|'SF'|'3rd'|'F' = 'F'
+  /* Empty store (cold boot before SSE snapshot lands, or iSports
+   * outage) → neutral fallback so we don't lie about the stage. */
+  if (all.length === 0) return asciiName('WORLD CUP    Awaiting data')
+  /* Walk WC progression order. The first stage that has matches AND
+   * isn't fully FT wins the focus. (If every stage we touch is FT, the
+   * loop keeps advancing — that's how "Final" becomes the focus only
+   * once everything before it is done.) */
+  const order: Array<'GS'|'R16'|'QF'|'SF'|'3rd'|'F'> = ['GS', 'R16', 'QF', 'SF', '3rd', 'F']
+  let focus: typeof order[number] = 'GS'
   for (const s of order) {
     const inStage = all.filter(m => m.stage === s)
     if (inStage.length === 0) continue
     focus = s
     if (!inStage.every(m => m.state === 'ft')) break
   }
-  const title = focus === 'QF' ? 'QUARTERFINALS'
-              : focus === 'SF' ? 'SEMIFINALS'
+  const title = focus === 'GS'  ? 'GROUP STAGE'
+              : focus === 'R16' ? 'ROUND OF 16'
+              : focus === 'QF'  ? 'QUARTERFINALS'
+              : focus === 'SF'  ? 'SEMIFINALS'
               : focus === '3rd' ? '3RD PLACE'
               : 'FINAL'
   const shown = listMatches()
   const liveCount = shown.filter(m => m.state === 'live').length
   const sub = shown.length === 0 ? 'No matches'
-            : liveCount > 0 ? `${shown.length} shown, ${liveCount} live`
-            : `${shown.length} shown`
+            : liveCount > 0 ? `${shown.length} today, ${liveCount} live`
+            : `${shown.length} today`
   return asciiName(`${title}    ${sub}`)
 }
 

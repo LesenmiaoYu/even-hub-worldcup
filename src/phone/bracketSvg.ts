@@ -13,6 +13,21 @@ function kickoffBadgeText(m: Match): string {
   } catch { return 'SCHEDULED' }
 }
 
+/* When a bracket slot has no team yet, the card shows the kickoff date
+ * instead of "TBD". Short M/D format keeps it tight inside the team slot
+ * (e.g., "7/19"). Falls back to "TBD" only when kickoffAt isn't seeded. */
+function tbdSlotLabel(m: Match): string {
+  if (!m.kickoffAt) return 'TBD'
+  const tz = settingsStore.get().timezone
+  try {
+    const d = new Date(m.kickoffAt)
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(d)
+    const mo = parts.find(p => p.type === 'month')?.value ?? ''
+    const day = parts.find(p => p.type === 'day')?.value ?? ''
+    return mo && day ? `${mo}/${day}` : 'TBD'
+  } catch { return 'TBD' }
+}
+
 /* Bracket view — mobile portrait (≤480px column).
  *
  * Hybrid layout:
@@ -74,8 +89,9 @@ function bracketCard(m: Match): string {
   const doneCls = m.state === 'ft' ? ' br-card-done' : ''
   const tbd = !m.home || !m.away
   const tbdCls = tbd && m.state !== 'ft' ? ' br-card-tbd' : ''
-  const home = m.home ?? 'TBD'
-  const away = m.away ?? 'TBD'
+  const tbdLabel = tbdSlotLabel(m)
+  const home = m.home ?? tbdLabel
+  const away = m.away ?? tbdLabel
   const showScores = m.state === 'ft' || m.state === 'live'
   const baseScore = showScores ? `${m.homeScore}-${m.awayScore}` : 'vs'
   /* For penalty shootouts, append "(H-A pen)" so the winning side is
@@ -94,8 +110,11 @@ function bracketCard(m: Match): string {
     ? `<img class="br-flag" src="${TEAMS[m.away]?.flag}" alt="" />`
     : `<span class="br-flag br-flag-placeholder"></span>`
 
-  /* Single-row layout: [flag] HOME  score  AWAY [flag]  |  badge.
-   * TBD slots render as "TBD vs TBD" inline — no lineage hint above. */
+  /* Two-row layout: matchup row 1 ([flag] HOME score AWAY [flag]), badge
+   * centered on row 2. Earlier single-row placed FT · PEN on the right
+   * rail, which read as cramped + asymmetric next to the (3-4 pen) suffix.
+   * Bottom-center keeps the result info under the score where the eye
+   * already lands. */
   return `
     <div class="br-card${liveCls}${doneCls}${tbdCls}" data-match-id="${m.id}" role="button" tabindex="0">
       <div class="br-line">
@@ -108,8 +127,8 @@ function bracketCard(m: Match): string {
           <span class="br-code">${away}</span>
           ${awayFlag}
         </div>
-        <span class="br-badge">${stageBadge(m)}</span>
       </div>
+      <div class="br-badge-row">${stageBadge(m)}</div>
     </div>
   `
 }
@@ -145,12 +164,15 @@ function miniTree(qfs: Match[], sfs: Match[], fin: Match | null): string {
     const hWin = isWinner(m, 'home')
     const aWin = isWinner(m, 'away')
     const winner = hWin ? m.home : aWin ? m.away : null
+    const dateLabel = tbdSlotLabel(m)
+    const homeLabel = m.home ?? dateLabel
+    const awayLabel = m.away ?? dateLabel
     const display = winner
       ? `<text x="${x + cellW/2}" y="${y + cellH/2 + 3}" text-anchor="middle" class="mt-winner">${winner}</text>`
-      : tbd
-        ? `<text x="${x + cellW/2}" y="${y + cellH/2 + 3}" text-anchor="middle">TBD</text>`
-        : `<text x="${x + 5}" y="${y + cellH/2 + 3}">${m.home}</text>
-           <text x="${x + cellW - 5}" y="${y + cellH/2 + 3}" text-anchor="end">${m.away}</text>`
+      : tbd && !m.home && !m.away
+        ? `<text x="${x + cellW/2}" y="${y + cellH/2 + 3}" text-anchor="middle">${dateLabel}</text>`
+        : `<text x="${x + 5}" y="${y + cellH/2 + 3}">${homeLabel}</text>
+           <text x="${x + cellW - 5}" y="${y + cellH/2 + 3}" text-anchor="end">${awayLabel}</text>`
     return `
       <g class="mt-cell${liveCls}${doneCls}${tbdCls}">
         <rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" rx="2"/>

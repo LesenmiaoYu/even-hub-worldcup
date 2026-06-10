@@ -85,4 +85,5 @@ export const TEAMS: Record<string, Team> = Object.fromEntries([
   t('SWE', 'Sweden'),
   t('TUR', 'Turkey'),
   t('UZB', 'Uzbekistan'),
+  t('NIR', 'Northern Ireland'),
 ])

@@ -99,15 +99,6 @@ function openSse(url: string): {
   }
 }
 
-async function postCommand(command: string): Promise<{ status: number; body: unknown }> {
-  const res = await fetch(`${baseUrl}/command`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ command }),
-  })
-  return { status: res.status, body: await res.json() }
-}
-
 describe('GET /health', () => {
   it('returns 200 and ok:true', async () => {
     const res = await fetch(`${baseUrl}/health`)
@@ -125,38 +116,37 @@ describe('GET /health', () => {
 
 describe('OPTIONS preflight', () => {
   it('returns 204 with CORS headers', async () => {
-    const res = await fetch(`${baseUrl}/command`, { method: 'OPTIONS' })
+    const res = await fetch(`${baseUrl}/events`, { method: 'OPTIONS' })
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('*')
-    expect(res.headers.get('access-control-allow-methods')).toContain('POST')
   })
 })
 
 describe('GET /events (SSE)', () => {
-  it('streams a snapshot event within 500ms of connect', async () => {
+  it('streams a snapshot event within 500ms of connect (empty initial)', async () => {
     const sse = openSse(`${baseUrl}/events`)
     try {
       const snap = await sse.nextEvent(ev => ev === 'snapshot', 500)
       expect(snap.event).toBe('snapshot')
       const data = snap.data as { matches: Array<{ id: string }> }
       expect(Array.isArray(data.matches)).toBe(true)
-      expect(data.matches.length).toBeGreaterThan(0)
-      expect(data.matches.map(m => m.id)).toContain('sf1')
+      expect(data.matches.length).toBe(0)
     } finally {
       sse.close()
     }
   })
-})
 
-describe('POST /command', () => {
-  it('start_live returns {ok:true} and the SSE stream sees a reset delta', async () => {
+  it('streams a delta after a store mutation', async () => {
     const sse = openSse(`${baseUrl}/events`)
     try {
-      await sse.nextEvent(ev => ev === 'snapshot', 500) /* drain snapshot first */
-      const { status, body } = await postCommand('start_live')
-      expect(status).toBe(200)
-      expect((body as { ok: boolean }).ok).toBe(true)
-
+      await sse.nextEvent(ev => ev === 'snapshot', 500)
+      store.replaceAll([{
+        id: 't1', stage: 'QF', home: 'ARG', away: 'BRA',
+        homeScore: null, awayScore: null,
+        homePenalty: null, awayPenalty: null,
+        minute: null, state: 'scheduled',
+        kickoffOffsetMin: 60, events: [],
+      }])
       const reset = await sse.nextEvent(
         (ev, data) => ev === 'delta' && (data as Delta).type === 'reset',
         500,
@@ -165,66 +155,6 @@ describe('POST /command', () => {
     } finally {
       sse.close()
     }
-  })
-
-  it('mbappe_goal after start_live broadcasts an event-applied delta', async () => {
-    const sse = openSse(`${baseUrl}/events`)
-    try {
-      await sse.nextEvent(ev => ev === 'snapshot', 500)
-      await postCommand('start_live')
-      await sse.nextEvent(
-        (ev, data) => ev === 'delta' && (data as Delta).type === 'reset',
-        500,
-      )
-      const { status, body } = await postCommand('mbappe_goal')
-      expect(status).toBe(200)
-      expect((body as { ok: boolean }).ok).toBe(true)
-
-      const goal = await sse.nextEvent(
-        (ev, data) =>
-          ev === 'delta' &&
-          (data as Delta).type === 'event-applied' &&
-          ((data as Extract<Delta, { type: 'event-applied' }>).event.type === 'goal'),
-        500,
-      )
-      const delta = goal.data as Extract<Delta, { type: 'event-applied' }>
-      expect(delta.event.player).toBe('Mbappé')
-    } finally {
-      sse.close()
-    }
-  })
-
-  it('sub broadcasts an event-applied delta with type=sub', async () => {
-    const sse = openSse(`${baseUrl}/events`)
-    try {
-      await sse.nextEvent(ev => ev === 'snapshot', 500)
-      await postCommand('start_live')
-      await sse.nextEvent(
-        (ev, data) => ev === 'delta' && (data as Delta).type === 'reset',
-        500,
-      )
-      const { status } = await postCommand('sub')
-      expect(status).toBe(200)
-      const subDelta = await sse.nextEvent(
-        (ev, data) =>
-          ev === 'delta' &&
-          (data as Delta).type === 'event-applied' &&
-          ((data as Extract<Delta, { type: 'event-applied' }>).event.type === 'sub'),
-        500,
-      )
-      const d = subDelta.data as Extract<Delta, { type: 'event-applied' }>
-      expect(d.event.playerIn).toBeTruthy()
-    } finally {
-      sse.close()
-    }
-  })
-
-  it('unknown command returns 400 with ok:false', async () => {
-    const { status, body } = await postCommand('not_a_real_command')
-    expect(status).toBe(400)
-    const b = body as { ok: boolean; error: string }
-    expect(b.ok).toBe(false)
-    expect(b.error).toMatch(/unknown_command/)
   })
 })
 

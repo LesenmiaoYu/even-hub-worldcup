@@ -6,11 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:demo": "VITE_DEMO_MODE=true tsc && VITE_DEMO_MODE=true vite build",
     "preview": "vite preview",
     "server": "tsx watch --env-file-if-exists=.env server/index.ts",
     "dev:all": "concurrently -n vite,server 'npm:dev' 'npm:server'",
-    "pack:demo": "npm run build:demo && evenhub pack app.json dist -o even-hub-worldcup-demo.ehpk",
+    "pack": "npm run build && evenhub pack app.json dist -o even-hub-worldcup.ehpk",
     "test": "vitest run",
     "test:watch": "vitest"
   },

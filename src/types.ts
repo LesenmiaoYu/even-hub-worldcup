@@ -10,10 +10,11 @@ export type TeamCode =
   | 'USA' | 'CAN' | 'MEX' | 'CRC' | 'PAN' | 'JAM'
   /* CONMEBOL (6) */
   | 'ARG' | 'BRA' | 'URU' | 'COL' | 'ECU' | 'PAR'
-  /* UEFA (19) — includes Scotland, Sweden, Turkey from iSports projection */
+  /* UEFA (20) — includes Scotland, Sweden, Turkey from iSports projection
+   * and Northern Ireland (demo). */
   | 'ESP' | 'FRA' | 'ENG' | 'GER' | 'ITA' | 'NED' | 'POR' | 'BEL'
   | 'CRO' | 'SWI' | 'DEN' | 'POL' | 'AUT' | 'CZE' | 'SRB' | 'NOR'
-  | 'BIH' | 'SCO' | 'SWE' | 'TUR'
+  | 'BIH' | 'SCO' | 'SWE' | 'TUR' | 'NIR'
   /* CAF (12) — includes Cape Verde, DR Congo, South Africa from iSports projection */
   | 'MAR' | 'SEN' | 'EGY' | 'GHA' | 'CMR' | 'NGA' | 'ALG' | 'TUN' | 'CIV'
   | 'CPV' | 'COD' | 'RSA'

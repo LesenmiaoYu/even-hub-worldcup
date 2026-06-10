@@ -33,16 +33,18 @@ interface SnapshotMessage {
   matches: Match[]
 }
 
-interface CommandResponse {
-  ok: boolean
-  error?: string
-}
-
-/* Vite proxies /events + /command to http://localhost:3001 in dev; in
- * production the host serving the bundle is expected to expose the same
- * paths. Relative URLs keep us host-agnostic. */
-const EVENTS_PATH = '/events'
-const COMMAND_PATH = '/command'
+/* Server URL resolution.
+ *
+ * Dev: VITE_SERVER_URL unset → relative '/events' → vite proxy forwards
+ *      to http://localhost:3001 (see vite.config.ts).
+ *
+ * Prod (.ehpk): VITE_SERVER_URL is baked at build time as the absolute
+ *      public URL of the Node server (e.g. https://wc.yulesenmiao.com).
+ *      The .ehpk runs inside the Even App WebView so its origin is the
+ *      sandbox, not the server — relative paths would not resolve. */
+const SERVER_URL = (import.meta as unknown as { env: Record<string, string | undefined> })
+  .env.VITE_SERVER_URL?.replace(/\/$/, '') ?? ''
+const EVENTS_PATH = `${SERVER_URL}/events`
 
 let connection: EventSource | null = null
 
@@ -80,25 +82,4 @@ export function openServerConnection(): EventSource {
   }
 
   return es
-}
-
-/** POST a command to the server. Resolves with the server's JSON response
- * (or a synthesized error envelope on network failure). */
-export async function postCommand(
-  command: string,
-  payload?: Record<string, unknown>,
-): Promise<CommandResponse> {
-  try {
-    const res = await fetch(COMMAND_PATH, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command, ...(payload ?? {}) }),
-    })
-    const body = (await res.json()) as CommandResponse
-    return body
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error(`[serverClient] postCommand(${command}) failed:`, msg)
-    return { ok: false, error: msg }
-  }
 }

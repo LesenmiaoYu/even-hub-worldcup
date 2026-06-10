@@ -1,11 +1,12 @@
 import type { Match, MatchEvent } from '../types'
-import { getInitialMatches } from '../mock/tournament'
 import type { Delta } from './serverClient'
 
 type Listener = (matches: Match[]) => void
 
 export class Store {
-  private matches: Match[] = getInitialMatches()
+  /* Starts empty in prod. The first SSE `snapshot` frame from the server
+   * (which hydrates from iSports on boot) seeds the store via replaceAll. */
+  private matches: Match[] = []
   private listeners = new Set<Listener>()
 
   getAll(): Match[] {
