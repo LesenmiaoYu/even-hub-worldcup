@@ -1,6 +1,10 @@
 node_modules/
 dist/
 .env
+.env.personal
+.env.company
+.env.*.local
+app.packed.json
 .DS_Store
 *.ehpk
 /tmp/

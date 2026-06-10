@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:personal": "tsc && vite build --mode personal",
+    "build:company": "tsc && vite build --mode company",
     "preview": "vite preview",
     "server": "tsx watch --env-file-if-exists=.env server/index.ts",
     "dev:all": "concurrently -n vite,server 'npm:dev' 'npm:server'",
-    "pack": "npm run build && evenhub pack app.json dist -o even-hub-worldcup.ehpk",
+    "pack:personal": "npm run build:personal && node scripts/prepack.mjs --mode personal && evenhub pack app.packed.json dist -o wc-personal.ehpk",
+    "pack:company": "npm run build:company && node scripts/prepack.mjs --mode company && evenhub pack app.packed.json dist -o wc-company.ehpk",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -709,16 +709,19 @@ No HTTP framework dep — server uses Node built-in `http`.
 | `flag-icons` |
 | `@types/node` |
 
-### 8.3 npm scripts (`package.json:6-15`)
+### 8.3 npm scripts (`package.json`)
 
 | Script | Command | Purpose |
 |---|---|---|
 | `dev` | `vite` | frontend dev server (proxies `/events` to `:3001`) |
-| `build` | `tsc && vite build` | typecheck then production bundle |
+| `build` | `tsc && vite build` | typecheck + dev/preview bundle (no URL baked) |
+| `build:personal` | `tsc && vite build --mode personal` | bundle for David's personal-host build (reads `.env.personal`) |
+| `build:company` | `tsc && vite build --mode company` | bundle for company-host build (reads `.env.company`) |
 | `preview` | `vite preview` | serve built dist locally |
 | `server` | `tsx watch --env-file-if-exists=.env server/index.ts` | iSports SSE backend on `:3001` with hot reload |
 | `dev:all` | `concurrently -n vite,server 'npm:dev' 'npm:server'` | both in one terminal |
-| `pack` | `npm run build && evenhub pack app.json dist -o even-hub-worldcup.ehpk` | build + package the `.ehpk` |
+| `pack:personal` | build:personal + `scripts/prepack.mjs` + `evenhub pack app.packed.json dist -o wc-personal.ehpk` | personal-host `.ehpk` |
+| `pack:company`  | build:company + `scripts/prepack.mjs` + `evenhub pack app.packed.json dist -o wc-company.ehpk` | company-host `.ehpk` |
 | `test` | `vitest run` | one-shot test suite |
 | `test:watch` | `vitest` | watch mode |
 
@@ -753,9 +756,25 @@ Set `VITE_SERVER_URL` only at build time for the `.ehpk` — never in dev.
 
 ### 8.6 `.ehpk` packaging
 
-`npm run pack` runs `npm run build` then `evenhub pack app.json dist -o even-hub-worldcup.ehpk`. `app.json` manifest: `package_id=com.even.worldcup`, `version=0.1.0`, `min_app_version=2.0.0`, `min_sdk_version=0.0.10`, `entrypoint=index.html`, no permissions declared, EN-only.
+Two ship targets — David's personal-host build and the company-host build — each with its own `VITE_SERVER_URL` and matching `permissions[network].whitelist`. Run `npm run pack:personal` or `npm run pack:company`. Each does:
 
-For prod builds, set `VITE_SERVER_URL` before `npm run pack` so the absolute SSE URL is baked into the bundle.
+1. `tsc && vite build --mode <profile>` (reads `.env.<profile>`, bakes `VITE_SERVER_URL` into the JS bundle)
+2. `node scripts/prepack.mjs --mode <profile>` (validates HTTPS, asserts `dist/index.html`, writes `app.packed.json` with the network permission whitelist set to the URL's origin)
+3. `evenhub pack app.packed.json dist -o wc-<profile>.ehpk`
+
+`app.json` stays committed with `permissions: []`; `app.packed.json` is gitignored and regenerated every pack so the whitelist always matches the bundle's `VITE_SERVER_URL`. Two values, one source of truth (`.env.<profile>`).
+
+Manifest defaults: `package_id=com.even.worldcup`, `version=0.1.0`, `min_app_version=2.0.0`, `min_sdk_version=0.0.10`, `entrypoint=index.html`, EN-only. Bump `version` on every redistributed build (Dev Portal requires monotonically increasing semver per `package_id`).
+
+The `network` permission injected by prepack:
+```json
+{
+  "name": "network",
+  "desc": "Streams live World Cup match updates from the relay server over Server-Sent Events.",
+  "whitelist": ["<https origin of VITE_SERVER_URL>"]
+}
+```
+Without it the Even App WebView silently blocks every SSE call on device while dev (via vite proxy) keeps working — the worst kind of bug, hence the prepack guard.
 
 ### 8.7 Deploy
 

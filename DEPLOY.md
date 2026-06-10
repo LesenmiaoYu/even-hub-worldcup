@@ -62,9 +62,9 @@ cp .env.example .env
 |---|---|---|---|
 | `ISPORTS_API_KEY` | yes (server) | — | iSports auth, read on every API call by `server/isports/client.ts`. Throws on missing. |
 | `PORT` | no | `3001` | Port the Node SSE server listens on. Read in `server/index.ts`. |
-| `VITE_SERVER_URL` | yes (prod build only) | unset | Absolute URL of the public Node server, baked into the `.ehpk` bundle at build time. Leave UNSET in dev — the vite proxy in `vite.config.ts` forwards `/events` → `http://localhost:3001`. Example: `https://wc.yulesenmiao.com`. |
+| `VITE_SERVER_URL` | yes (prod build only) | unset | Absolute URL of the public Node server, baked into the `.ehpk` bundle at build time. Leave UNSET in dev — the vite proxy in `vite.config.ts` forwards `/events` → `http://localhost:3001`. Example: `https://wc.yulesenmiao.com`. **Lives in `.env.personal` / `.env.company`, not the server `.env`** — see Step 5. |
 
-`.env` is gitignored. Never commit `ISPORTS_API_KEY`.
+`.env`, `.env.personal`, `.env.company` are all gitignored. Never commit `ISPORTS_API_KEY` or production URLs that you don't want publicly known.
 
 ---
 
@@ -174,15 +174,59 @@ curl -N https://<your-public-url>/events | head -5
 
 ## Step 5: Build the .ehpk
 
-`VITE_SERVER_URL` is baked into the JS bundle at build time. The `.ehpk` has no runtime config — point it at the wrong URL and you re-pack.
+The server URL lives in TWO places at pack time and they MUST match:
 
-```bash
-VITE_SERVER_URL=https://wc.example.com npm run pack
+1. The JS bundle — `EventSource(\`${VITE_SERVER_URL}/events\`)` is hard-baked at `vite build` time
+2. `app.json` permissions whitelist — the Even App WebView blocks every domain not in `permissions[name=network].whitelist`
+
+To keep them in sync we ship a small `scripts/prepack.mjs` helper and run packs through profile-scoped scripts that read from `.env.<profile>`:
+
+### Two profiles, two `.ehpk`s
+
+| Profile | `.env` file | Build script | Pack script | Output |
+|---|---|---|---|---|
+| **Personal** (David's host) | `.env.personal` | `npm run build:personal` | `npm run pack:personal` | `wc-personal.ehpk` |
+| **Company** (Even relay) | `.env.company` | `npm run build:company` | `npm run pack:company` | `wc-company.ehpk` |
+
+### Pack flow
+
+1. Copy `.env.personal.example` → `.env.personal` (or `.env.company.example` → `.env.company`) and fill in `VITE_SERVER_URL` with the publicly-reachable HTTPS origin of YOUR server.
+2. Run the matching pack script:
+   ```bash
+   npm run pack:personal
+   # or
+   npm run pack:company
+   ```
+3. Output: `wc-personal.ehpk` (or `wc-company.ehpk`) at the repo root.
+
+### Under the hood
+
+```
+npm run pack:personal
+  ├─ tsc                          (typecheck)
+  ├─ vite build --mode personal   (reads .env.personal → bakes VITE_SERVER_URL into JS)
+  ├─ node scripts/prepack.mjs --mode personal
+  │   ├─ reads .env.personal
+  │   ├─ validates VITE_SERVER_URL is https://
+  │   ├─ asserts dist/index.html exists
+  │   └─ writes app.packed.json (clone of app.json + network whitelist filled in)
+  └─ evenhub pack app.packed.json dist -o wc-personal.ehpk
 ```
 
-Output: `even-hub-worldcup.ehpk` at the repo root. `app.json` declares `package_id: com.even.worldcup`, `version: 0.1.0`, `min_app_version: 2.0.0`, `min_sdk_version: 0.0.10`.
+`app.json` stays committed with empty `permissions: []` — `app.packed.json` is gitignored, regenerated every pack.
 
-Bump `version` in `app.json` for every redistributed build.
+### Manifest defaults
+
+`app.json` declares `package_id: com.even.worldcup`, `version: 0.1.0`, `min_app_version: 2.0.0`, `min_sdk_version: 0.0.10`. Bump `version` for every redistributed build (Dev Portal requires monotonically increasing semver per `package_id`).
+
+### Common pack failures
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `prepack: .env.personal not found` | Skipped Step 5.1 | Copy `.env.personal.example` and fill in URL |
+| `prepack: VITE_SERVER_URL must be HTTPS` | `http://` or empty | Use the HTTPS origin from Step 4 |
+| `prepack: dist/index.html missing` | Vite build failed silently | Re-run `npm run build:personal` and check for errors |
+| SSE works in dev, silent on device | Whitelist origin doesn't match `EventSource` URL exactly | Both come from `VITE_SERVER_URL` in `.env.<profile>` — re-pack from a clean state |
 
 ---
 
