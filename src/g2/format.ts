@@ -46,7 +46,14 @@ export function isMatchToday(m: Match): boolean {
 }
 
 /* Short "Next: <when>" label for the L1 header when nothing is on today.
- * Tomorrow → "Next: Tomorrow", later → "Next: MM/DD". */
+ * Calendar-day-aware in the user's TZ so it never disagrees with the list
+ * row (which also uses calendar-day comparison via kickoffLabel).
+ *   today (defensive) → ''      (shouldn't fire; caller's "today" check ran)
+ *   tomorrow          → 'Next Tomorrow'
+ *   2..6 calendar days → 'Next in Nd'
+ *   else              → 'Next MM/DD'
+ * A Beijing user looking at a 12:00 PT match: kickoff lands on 06/12 local,
+ * which is 2 calendar days from 06/10 today → 'Next in 2d', not 'Next 6/12'. */
 export function nextKickoffLabel(matches: Match[]): string {
   const tz = settingsStore.get().timezone
   const upcoming = matches
@@ -54,10 +61,26 @@ export function nextKickoffLabel(matches: Match[]): string {
     .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
   const m = upcoming[0]
   if (!m || !m.kickoffAt) return ''
-  const now = new Date()
   const kick = new Date(m.kickoffAt)
-  if (isSameDayInZone(addDays(now, 1), kick, tz)) return 'Next Tomorrow'
+  const days = calendarDaysUntilInZone(kick, tz)
+  if (days <= 0) return ''
+  if (days === 1) return 'Next Tomorrow'
+  if (days <= 6) return `Next in ${days}d`
   return `Next ${formatMD(kick, tz)}`
+}
+
+/* Calendar-day gap between now and `d`, in the user's TZ.
+ *   0  = same calendar date
+ *   1  = tomorrow
+ *   2  = day after tomorrow
+ *   ...
+ *   31 = sentinel "more than a month" */
+function calendarDaysUntilInZone(d: Date, tz: string): number {
+  const now = new Date()
+  for (let i = 0; i <= 30; i++) {
+    if (isSameDayInZone(addDays(now, i), d, tz)) return i
+  }
+  return 31
 }
 function ymdInZone(d: Date, tz: string): string {
   try {
@@ -186,12 +209,42 @@ export function kickoffLabel(m: Match): string {
   const off = m.kickoffOffsetMin
   if (off < 0) return ''
   if (off < 60) return `in ${off}m`
+  /* Hour bucket is timezone-agnostic (same in PT/Beijing/etc.) so the
+   * sub-day rung stays as-is. */
   const h = Math.floor(off / 60)
+  if (h < 24 && m.kickoffAt) {
+    /* Sub-24h but might already be tomorrow's calendar date in the
+     * user's TZ (e.g. 11pm now, 1am match → "Tomorrow" reads truer than
+     * "2h"). Honor the calendar gap when we have it. */
+    const tz = settingsStore.get().timezone
+    const days = calendarDaysUntilInZoneFor(new Date(m.kickoffAt), tz)
+    if (days === 1) return 'Tomorrow'
+    return `${h}h`
+  }
   if (h < 24) return `${h}h`
+  /* >=24h: prefer TZ-aware calendar gap when we have kickoffAt, so the
+   * list and the L1 header (which uses nextKickoffLabel) always agree. */
+  if (m.kickoffAt) {
+    const tz = settingsStore.get().timezone
+    const days = calendarDaysUntilInZoneFor(new Date(m.kickoffAt), tz)
+    if (days === 1) return 'Tomorrow'
+    if (days <= 6) return `In ${days} days`
+    return `${days}d`
+  }
   const days = Math.round(h / 24)
   if (days === 1) return 'Tomorrow'
   if (days <= 2) return 'In 2 days'
   return `${days}d`
+}
+
+/* Same as the file-private calendarDaysUntilInZone; duplicated as a
+ * named export-shape so kickoffLabel can call it without forward-ref. */
+function calendarDaysUntilInZoneFor(d: Date, tz: string): number {
+  const now = new Date()
+  for (let i = 0; i <= 30; i++) {
+    if (isSameDayInZone(addDays(now, i), d, tz)) return i
+  }
+  return 31
 }
 
 export function upcomingRow(m: Match): string {
