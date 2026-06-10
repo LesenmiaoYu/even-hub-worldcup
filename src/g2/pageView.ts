@@ -59,6 +59,8 @@ const NAME = {
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
 function stageLabel(m: Match): string {
+  if (m.stage === 'GS') return 'GROUP STAGE'
+  if (m.stage === 'R16') return 'ROUND OF 16'
   if (m.stage === 'QF') return 'QUARTERFINAL'
   if (m.stage === 'SF') return 'SEMIFINAL'
   if (m.stage === '3rd') return '3RD PLACE'
