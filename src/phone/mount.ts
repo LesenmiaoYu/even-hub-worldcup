@@ -304,7 +304,22 @@ function renderMatches(): string {
 }
 
 function renderBracket(): string {
-  return renderBracketSvg(store.getAll())
+  const all = store.getAll()
+  /* "Bracket view" = the knockout-tree visualization. Without any
+   * scheduled QF, there's nothing to draw — the mini-tree is empty and
+   * the QF/SF/F/3rd section lists are blank, leaving the page either
+   * empty or a redundant copy of the matches tab (GS/R16). Show a
+   * placeholder instead so the tab still has meaningful content. */
+  const hasQF = all.some(m => m.stage === 'QF')
+  if (!hasQF) {
+    return `
+      <div class="bracket-empty">
+        <div class="be-title">No bracket yet</div>
+        <div class="be-sub">The bracket will appear here once the Quarterfinals are scheduled.</div>
+      </div>
+    `
+  }
+  return renderBracketSvg(all)
 }
 
 function renderDetail(): string {

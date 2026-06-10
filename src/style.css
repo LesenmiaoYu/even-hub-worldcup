@@ -506,6 +506,30 @@ input, textarea { user-select: text; -webkit-user-select: text; }
  * Mobile portrait, ≤480px column. See src/phone/bracketSvg.ts. */
 .bracket-page { margin-top: var(--s-4); }
 
+.bracket-empty {
+  background: var(--surface-0);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-low);
+  margin-top: var(--s-4);
+  padding: var(--s-7) var(--s-5);
+  text-align: center;
+}
+.bracket-empty .be-title {
+  font-family: var(--font-en);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: var(--s-2);
+}
+.bracket-empty .be-sub {
+  font-family: var(--font-en);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  max-width: 280px;
+  margin: 0 auto;
+}
+
 .br-mini-wrap {
   background: var(--surface-0);
   border-radius: var(--r-md);
