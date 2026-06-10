@@ -58,8 +58,9 @@
   --os-green:      #3CFA44;
 
   /* System tokens — Light theme */
-  --surface-0: var(--neutral-0);     /* page bg */
-  --surface-1: var(--neutral-100);   /* card / chip bg */
+  --bg-page:   var(--neutral-100);   /* page canvas — light gray, reference */
+  --surface-0: var(--neutral-0);     /* card bg — pure white */
+  --surface-1: var(--neutral-100);   /* chip / inset bg */
   --surface-2: var(--neutral-200);   /* nested surface */
   --hairline:  var(--neutral-200);
   --divider:   var(--neutral-200);
@@ -90,9 +91,11 @@
   --r-pill: 999px;
 
   /* Elevation — Library 3.0 (approximated) */
-  --elev-low:    0 1px 2px rgba(34, 34, 34, 0.04), 0 0 0 1px rgba(34, 34, 34, 0.04);
-  --elev-medium: 0 4px 12px rgba(34, 34, 34, 0.06), 0 0 0 1px rgba(34, 34, 34, 0.04);
-  --elev-high:   0 12px 32px rgba(34, 34, 34, 0.10), 0 0 0 1px rgba(34, 34, 34, 0.04);
+  /* Cards sit flat on the gray canvas — no shadow, no hairline ring.
+   * Modal surfaces (dialog, toast) keep their lift. */
+  --elev-low:    none;
+  --elev-medium: 0 4px 12px rgba(34, 34, 34, 0.06);
+  --elev-high:   0 12px 32px rgba(34, 34, 34, 0.10);
 
   /* Type — Library 3.0 */
   --font-en: 'FK Grotesk Neue', 'Even Roster Grotesk', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, system-ui, sans-serif;
@@ -111,7 +114,7 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: var(--surface-0);
+  background: var(--bg-page);
   color: var(--text-primary);
   height: 100%;
   overscroll-behavior: none;
@@ -149,7 +152,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   margin: 0 auto;
   padding: 0 var(--s-4) var(--s-9);
   min-height: 100%;
-  background: var(--surface-0);
+  background: var(--bg-page);
 }
 
 /* Top bar
@@ -167,8 +170,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   justify-content: space-between;
   margin: 0 calc(-1 * var(--s-4));
   padding: calc(var(--s-5) + env(safe-area-inset-top, 0px)) var(--s-4) var(--s-3);
-  background: var(--surface-0);
-  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-page);
 }
 .brand {
   font-size: 24px;
@@ -243,6 +245,53 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 .card + .card { margin-top: var(--s-2); }
 
+/* Location strip — compact timezone selector pinned just under the topbar.
+ * Replaces the prior Settings tab per design feedback: same control surface,
+ * tiny footprint, always visible. */
+.loc-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 0 var(--s-3);
+}
+.loc-label {
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+.loc-country {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.loc-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface-1);
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 4px 24px 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.24px;
+  color: var(--text-primary);
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%),
+                    linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  max-width: 220px;
+}
+
 /* Match row card */
 .row {
   display: grid;
@@ -280,7 +329,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
 }
 .flag.placeholder {
-  background: repeating-linear-gradient(45deg, var(--surface-1), var(--surface-1) 4px, var(--surface-2) 4px, var(--surface-2) 8px);
+  background: var(--surface-2);
 }
 
 .center {
@@ -428,7 +477,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   width: fit-content;
 }
 .ev-type.goal { background: rgba(75, 185, 86, 0.12); color: var(--signal-green); }
-.ev-type.yellow { background: rgba(255, 207, 84, 0.18); color: #a87a00; }
+.ev-type.yellow { background: rgba(255, 207, 84, 0.18); color: var(--neutral-700); }
 .ev-type.red { background: rgba(255, 84, 84, 0.12); color: var(--live); }
 .ev-type.ht, .ev-type.ft { background: var(--surface-1); color: var(--text-secondary); }
 .ev-who {
@@ -609,7 +658,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 .br-flag-placeholder {
   display: inline-block;
-  background: repeating-linear-gradient(45deg, var(--surface-1), var(--surface-1) 3px, var(--surface-2) 3px, var(--surface-2) 6px);
+  background: var(--surface-2);
 }
 .br-code {
   font-weight: 400;

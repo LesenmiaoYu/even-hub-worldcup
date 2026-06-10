@@ -91,6 +91,10 @@ export interface Match {
   minute: number | null
   state: MatchState
   kickoffOffsetMin: number
+  /** Absolute kickoff time (ISO 8601, UTC). Optional for back-compat with
+   * older feeds; phone bracket + countdown formatting prefer this when set
+   * and fall back to kickoffOffsetMin. */
+  kickoffAt?: string
   events: MatchEvent[]
   venue?: string
   resolvesFrom?: { home?: string; away?: string }

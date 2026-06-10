@@ -1,13 +1,13 @@
 import { waitForEvenAppBridge, OsEventTypeList } from '@evenrealities/even_hub_sdk'
 import { store } from './state/store'
 import { openServerConnection } from './state/serverClient'
+import { DEMO_MODE } from './state/demoMode'
 import {
   buildDetailPage, buildListPage,
   makeEventLogUpgrade, makeHeaderTextUpgrade, makeScoreUpdate,
   makePenIndicatorUpgrade,
   renderCodeImage,
   pickFocusMatch, getMatchById, listMatchAtIndex,
-  hasShootout,
   DETAIL_IDS,
 } from './g2/pageView'
 import { preloadAlphabet } from './g2/pixelAlphabet'
@@ -65,7 +65,6 @@ const last = {
   homeCode: '',
   awayCode: '',
   scoreSig: '',
-  shootoutPresent: false,
   penSig: '',
 }
 
@@ -104,7 +103,6 @@ async function fullRenderDetail() {
     last.homeCode = match.home ?? 'TBD'
     last.awayCode = match.away ?? 'TBD'
     last.scoreSig = scoreSig(match)
-    last.shootoutPresent = hasShootout(match)
     last.penSig = penSig(match)
   }
 }
@@ -117,10 +115,10 @@ async function incrementalRenderDetail() {
   const m = getMatchById(currentMatchId)
   if (!m) return
 
-  /* Structural deltas → bail out and do a full rebuild (the page payload
-   * itself needs to change, e.g. PEN container materializing). */
-  const shootoutNow = hasShootout(m)
-  if (m.id !== last.matchId || shootoutNow !== last.shootoutPresent) {
+  /* Structural deltas → bail out and do a full rebuild. PEN now renders
+   * unconditionally so its presence isn't a structural change anymore;
+   * only a match swap requires a full rebuild. */
+  if (m.id !== last.matchId) {
     await fullRenderDetail()
     return
   }
@@ -155,9 +153,11 @@ async function incrementalRenderDetail() {
     last.awayCode = newAwayCode
   }
 
-  /* PEN block — text container update when shootout score changed. */
+  /* PEN block — text container update when penalty score signature
+   * changes. PEN is always rendered (empty state = "PEN --"), so the
+   * upgrade fires for null→score transitions too. */
   const newPenSig = penSig(m)
-  if (shootoutNow && newPenSig !== last.penSig) {
+  if (newPenSig !== last.penSig) {
     const upgrade = makePenIndicatorUpgrade(currentMatchId)
     if (upgrade) await bridge.textContainerUpgrade(upgrade as any)
     last.penSig = newPenSig
@@ -180,7 +180,10 @@ setPhoneNavListener(async (event) => {
 })
 
 await bootList()
-openServerConnection()
+/* Demo build (VITE_DEMO_MODE=true) ships without a backend — store is
+ * already seeded from getInitialMatches() and debug handlers mutate it
+ * directly, so the SSE connection is skipped. */
+if (!DEMO_MODE) openServerConnection()
 
 store.subscribe(() => {
   renderPhone()

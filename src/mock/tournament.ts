@@ -9,6 +9,7 @@ export function getInitialMatches(): Match[] {
       homeScore: 2, awayScore: 1, homePenalty: null, awayPenalty: null,
       minute: 90, state: 'ft',
       kickoffOffsetMin: -60 * 48,
+      kickoffAt: '2026-07-09T20:00:00Z',
       venue: 'Estadio Azteca',
       events: [
         { minute: 23, type: 'goal', side: 'home', player: 'Messi' },
@@ -24,6 +25,7 @@ export function getInitialMatches(): Match[] {
       homeScore: 1, awayScore: 0, homePenalty: null, awayPenalty: null,
       minute: 90, state: 'ft',
       kickoffOffsetMin: -60 * 45,
+      kickoffAt: '2026-07-09T23:00:00Z',
       venue: 'MetLife Stadium',
       events: [
         { minute: 56, type: 'goal', side: 'home', player: 'Mbappé' },
@@ -37,6 +39,7 @@ export function getInitialMatches(): Match[] {
       homeScore: 3, awayScore: 2, homePenalty: null, awayPenalty: null,
       minute: 90, state: 'ft',
       kickoffOffsetMin: -60 * 24,
+      kickoffAt: '2026-07-11T20:00:00Z',
       venue: 'SoFi Stadium',
       events: [
         { minute: 12, type: 'goal', side: 'home', player: 'Vinicius' },
@@ -58,6 +61,7 @@ export function getInitialMatches(): Match[] {
       homeScore: 2, awayScore: 2, homePenalty: 3, awayPenalty: 4,
       minute: 120, state: 'ft',
       kickoffOffsetMin: -60 * 21,
+      kickoffAt: '2026-07-11T23:00:00Z',
       venue: 'Estadio Akron',
       events: [
         { minute: 19,  type: 'goal', side: 'home', player: 'Yamal' },
@@ -79,6 +83,7 @@ export function getInitialMatches(): Match[] {
       homeScore: 3, awayScore: 3, homePenalty: 4, awayPenalty: 2,
       minute: 120, state: 'ft',
       kickoffOffsetMin: -120,
+      kickoffAt: '2026-07-14T23:00:00Z',
       venue: 'MetLife Stadium',
       events: [
         { minute: 23,  type: 'goal', side: 'home', player: 'Messi' },
@@ -97,6 +102,7 @@ export function getInitialMatches(): Match[] {
       homeScore: null, awayScore: null, homePenalty: null, awayPenalty: null,
       minute: null, state: 'scheduled',
       kickoffOffsetMin: 60 * 2,
+      kickoffAt: '2026-07-15T23:00:00Z',
       venue: 'Estadio Azteca',
       events: [],
     },
@@ -107,6 +113,7 @@ export function getInitialMatches(): Match[] {
       homeScore: null, awayScore: null, homePenalty: null, awayPenalty: null,
       minute: null, state: 'scheduled',
       kickoffOffsetMin: 60 * 25,
+      kickoffAt: '2026-07-18T19:00:00Z',
       venue: 'SoFi Stadium',
       events: [],
     },
@@ -121,6 +128,7 @@ export function getInitialMatches(): Match[] {
       homeScore: null, awayScore: null, homePenalty: null, awayPenalty: null,
       minute: null, state: 'scheduled',
       kickoffOffsetMin: 60 * 49,
+      kickoffAt: '2026-07-19T19:00:00Z',
       venue: 'MetLife Stadium',
       events: [],
       resolvesFrom: { home: 'sf1', away: 'sf2' },

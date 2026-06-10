@@ -1,4 +1,65 @@
 import type { Match, MatchEvent } from '../types'
+import { settingsStore } from '../state/settingsStore'
+
+/* Format a scheduled kickoff for the glasses event log.
+ * Uses Match.kickoffAt + user timezone (settingsStore) to produce:
+ *   - 'Today, in 2h'    (same calendar day in user TZ, < 24h)
+ *   - 'Today, in 45m'   (same calendar day in user TZ, < 60m)
+ *   - 'Tomorrow, 3PM'   (next calendar day in user TZ)
+ *   - '7/15 3PM'        (later, MM/DD)
+ * Falls back to the legacy relative 'Xm/Xh/Xd' if kickoffAt is missing.
+ * Output is ASCII-only — printable \x20-\x7E, safe for asciiName(). */
+export function kickoffGlassesLabel(m: Match): string {
+  const offMin = m.kickoffOffsetMin
+  if (!m.kickoffAt) {
+    if (offMin < 60) return `${offMin}m`
+    if (offMin < 24 * 60) return `${Math.floor(offMin / 60)}h`
+    return `${Math.round(offMin / 60 / 24)}d`
+  }
+  const tz = settingsStore.get().timezone
+  const now = new Date()
+  const kick = new Date(m.kickoffAt)
+  const sameDay = isSameDayInZone(now, kick, tz)
+  const nextDay = isSameDayInZone(addDays(now, 1), kick, tz)
+  const clock = formatClock(kick, tz)
+  if (sameDay) {
+    if (offMin < 60) return `Today, in ${Math.max(0, offMin)}m`
+    if (offMin < 24 * 60) return `Today, in ${Math.floor(offMin / 60)}h`
+    return `Today, ${clock}`
+  }
+  if (nextDay) return `Tomorrow, ${clock}`
+  return `${formatMD(kick, tz)} ${clock}`
+}
+
+function isSameDayInZone(a: Date, b: Date, tz: string): boolean {
+  return ymdInZone(a, tz) === ymdInZone(b, tz)
+}
+function ymdInZone(d: Date, tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
+    const y = parts.find(p => p.type === 'year')?.value ?? ''
+    const m = parts.find(p => p.type === 'month')?.value ?? ''
+    const day = parts.find(p => p.type === 'day')?.value ?? ''
+    return `${y}-${m}-${day}`
+  } catch { return d.toISOString().slice(0, 10) }
+}
+function addDays(d: Date, n: number): Date {
+  return new Date(d.getTime() + n * 24 * 60 * 60 * 1000)
+}
+function formatClock(d: Date, tz: string): string {
+  try {
+    const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true }).format(d)
+    return s.replace(/\s+/g, '').toUpperCase()
+  } catch { return '' }
+}
+function formatMD(d: Date, tz: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(d)
+    const m = parts.find(p => p.type === 'month')?.value ?? ''
+    const day = parts.find(p => p.type === 'day')?.value ?? ''
+    return `${m}/${day}`
+  } catch { return '' }
+}
 
 export function stageLabel(m: Match): string {
   if (m.stage === 'QF') return 'QUARTERFINAL'

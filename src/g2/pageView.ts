@@ -11,7 +11,7 @@ import {
 import type { Match } from '../types'
 import { store } from '../state/store'
 import {
-  statusVerbose, scoreText, eventChip, listLeft, listRight, asciiName, hasShootout,
+  statusVerbose, scoreText, eventChip, listLeft, listRight, asciiName, hasShootout, kickoffGlassesLabel,
 } from './format'
 import { renderScorePng, renderVsPng, renderCodePng } from './pngImage'
 
@@ -27,7 +27,11 @@ const SCORE_X = 144,  SCORE_Y = 68,   SCORE_W = 288, SCORE_H = 82
 const CODE_W = 132,   CODE_H = 52,    CODE_Y = 98
 const HOME_CODE_X = 4
 const AWAY_CODE_X = 440
-const LOG_X = 8,      LOG_Y = 180,    LOG_W = 560,   LOG_H = 108
+/* Event log fills from just under the score baseline (y=150 +2 breathing
+ * room) down to the canvas bottom (288). Was LOG_Y=180/LOG_H=108 — too
+ * short, the SDK was clipping more than 2 rows and the firmware drew its
+ * scrollbar. Now 152..288 = 136px tall, fits the typical match's log. */
+const LOG_X = 8,      LOG_Y = 152,    LOG_W = 560,   LOG_H = 136
 const LOG_ROWS = 6
 
 /* Layer 1 — header row (stage-as-hero) + two leveled lists.
@@ -72,12 +76,11 @@ function headerText(m: Match): string {
 
 function eventLogLines(m: Match): string[] {
   if (m.state === 'scheduled') {
-    const off = m.kickoffOffsetMin
-    let when = ''
-    if (off < 60) when = `${off}m`
-    else if (off < 24 * 60) when = `${Math.floor(off / 60)}h`
-    else when = `${Math.round(off / 60 / 24)}d`
-    const lines = [asciiName(`Kicks off in ${when}`)]
+    /* kickoffGlassesLabel returns one of: 'Today, in 2h' / 'Today, in 45m'
+     * / 'Tomorrow, 3PM' / '7/15 3PM'. ASCII-only, safe for the LVGL
+     * firmware font in this text container. */
+    const when = kickoffGlassesLabel(m)
+    const lines = [asciiName(`Kicks off ${when}`)]
     while (lines.length < LOG_ROWS) lines.push('')
     return lines
   }
@@ -157,12 +160,16 @@ function headerTextContainer(m: Match): TextContainerProperty {
  * when hasShootout(m). Renders "PEN" on row 1 and the shootout score on
  * row 2 — two-line format so the score reads as a tally, not running text. */
 function penIndicatorContainer(m: Match): TextContainerProperty {
+  /* Always rendered now — empty-state shows 'PEN --' so the slot is
+   * permanently visible and snaps to the real score when the shootout
+   * starts. Spec: penalty section always showing on app + glasses. */
+  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : '--'
   return new TextContainerProperty({
     xPosition: PEN_X, yPosition: PEN_Y, width: PEN_W, height: PEN_H,
     borderWidth: 0, borderColor: 0, borderRadius: 0, paddingLength: 0,
     containerID: ID.PEN, containerName: NAME.PEN,
     isEventCapture: 0,
-    content: asciiName(`PEN\n${m.homePenalty}-${m.awayPenalty}`),
+    content: asciiName(`PEN\n${score}`),
   })
 }
 
@@ -223,10 +230,10 @@ export async function buildDetailPage(matchId: string | null, kind: 'create' | '
   const textContainers: TextContainerProperty[] = [
     headerTextContainer(safe),
     eventLogText(safe),
+    /* PEN always present — empty state renders 'PEN --'. Avoids the
+     * structural-toggle fallback in main.ts (incremental → full rebuild). */
+    penIndicatorContainer(safe),
   ]
-  if (m && hasShootout(m)) {
-    textContainers.push(penIndicatorContainer(m))
-  }
   const imageContainers: ImageContainerProperty[] = [
     codeImage('home'),
     scoreImage(),
@@ -296,11 +303,12 @@ export async function renderCodeImage(slot: 'home' | 'away', code: string): Prom
 
 export function makePenIndicatorUpgrade(matchId: string | null): { containerID: number; containerName: string; contentOffset: number; contentLength: number; content: string } | null {
   const m = getMatchById(matchId)
-  if (!m || !hasShootout(m)) return null
+  if (!m) return null
+  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : '--'
   return {
     containerID: ID.PEN, containerName: NAME.PEN,
     contentOffset: 0, contentLength: 0,
-    content: asciiName(`PEN\n${m.homePenalty}-${m.awayPenalty}`),
+    content: asciiName(`PEN\n${score}`),
   }
 }
 
@@ -315,11 +323,20 @@ export interface ListPageRender {
 /* Layer 1 = today's schedule. WC max is 6 matches/day (group stage); knockout
  * days carry 1–4. "Today" = live + upcoming within next 24h. Past matches live
  * on the phone's Bracket tab — glasses stay glanceable. */
-const DAY_MS = 24 * 60
 function listMatches(): Match[] {
-  const live = store.getLive()
-  const upcomingToday = store.getUpcoming().filter(m => m.kickoffOffsetMin < DAY_MS)
-  return [...live, ...upcomingToday].slice(0, 6)
+  /* Glasses-side rule: "fill as many as possible, cap at 6, never TBD."
+   * Order = live → upcoming (soonest first) → past (most recent first).
+   * The 24h horizon is gone — the goal is to populate every slot the
+   * tournament can fill so the HUD never reads as half-empty. */
+  const settled = (m: Match) => m.home != null && m.away != null
+  const live = store.getLive().filter(settled)
+  const upcoming = store.getUpcoming()
+    .filter(settled)
+    .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
+  const past = store.getPast()
+    .filter(settled)
+    .sort((a, b) => b.kickoffOffsetMin - a.kickoffOffsetMin)
+  return [...live, ...upcoming, ...past].slice(0, 6)
 }
 
 /* Header row mirrors phone stage-as-hero: title = current bracket stage,
@@ -338,11 +355,11 @@ function listHeaderText(): string {
               : focus === 'SF' ? 'SEMIFINALS'
               : focus === '3rd' ? '3RD PLACE'
               : 'FINAL'
-  const today = listMatches()
-  const live = today.filter(m => m.state === 'live').length
-  const sub = today.length === 0 ? 'No matches today'
-            : live > 0 ? `${today.length} today, ${live} live`
-            : `${today.length} today`
+  const shown = listMatches()
+  const liveCount = shown.filter(m => m.state === 'live').length
+  const sub = shown.length === 0 ? 'No matches'
+            : liveCount > 0 ? `${shown.length} shown, ${liveCount} live`
+            : `${shown.length} shown`
   return asciiName(`${title}    ${sub}`)
 }
 

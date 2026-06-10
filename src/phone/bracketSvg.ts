@@ -1,5 +1,17 @@
 import type { Match, Stage } from '../types'
 import { TEAMS } from '../mock/teams'
+import { settingsStore } from '../state/settingsStore'
+
+function kickoffBadgeText(m: Match): string {
+  if (!m.kickoffAt) return 'SCHEDULED'
+  const tz = settingsStore.get().timezone
+  try {
+    const d = new Date(m.kickoffAt)
+    const date = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric' }).format(d).toUpperCase()
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true }).format(d).replace(/\s+/g, '').toUpperCase()
+    return `${date} ${time}`
+  } catch { return 'SCHEDULED' }
+}
 
 /* Bracket view — mobile portrait (≤480px column).
  *
@@ -51,7 +63,10 @@ function stageBadge(m: Match): string {
       ? `<span class="br-meta">FT · PEN</span>`
       : `<span class="br-meta">FT</span>`
   }
-  return `<span class="br-meta">SCHEDULED</span>`
+  /* Scheduled / TBD-opponent → show real kickoff date+time when available
+   * (fix #4 seed adds kickoffAt to every match). Falls back to 'SCHEDULED'
+   * for feeds that haven't backfilled the field. */
+  return `<span class="br-meta">${kickoffBadgeText(m)}</span>`
 }
 
 function bracketCard(m: Match): string {
@@ -208,15 +223,21 @@ export function renderBracketSvg(matches: Match[]): string {
   const fin   = matches.find(m => m.stage === 'F') ?? null
   const third = matches.find(m => m.stage === '3rd')
 
+  /* Mini-tree is conditional: skip if EVERY QF/SF/F slot is fully TBD
+   * (both opponents null) AND has no scheduled kickoffAt. Avoids rendering
+   * an empty grid when the bracket has nothing to show yet. */
+  const treeMatches = [...qfs, ...sfs, ...(fin ? [fin] : [])]
+  const hasAnyInfo = treeMatches.some(m =>
+    (m.home != null && m.away != null) || !!m.kickoffAt || m.state === 'live' || m.state === 'ft'
+  )
+
   /* Tournament-flow order: GS → R16 → QF → SF → F → 3rd. The mini-tree
    * at top still shows only the 4-QF→2-SF→F core; GS + R16 are sectioned
    * card lists below, reusing the same bracketCard component as the
    * later rounds so the visual style stays consistent. */
   return `
     <div class="bracket-page">
-      <div class="br-mini-wrap">
-        ${miniTree(qfs, sfs, fin)}
-      </div>
+      ${hasAnyInfo ? `<div class="br-mini-wrap">${miniTree(qfs, sfs, fin)}</div>` : ''}
       ${sectionList(STAGE_LABEL.GS, gs)}
       ${sectionList(STAGE_LABEL.R16, r16)}
       ${sectionList(STAGE_LABEL.QF, qfs)}

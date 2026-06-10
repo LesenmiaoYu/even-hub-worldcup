@@ -5,6 +5,7 @@ import { toast } from './toast'
 import { renderBracketSvg } from './bracketSvg'
 import { castVote, getTallySync, getUserVote, type Side, type VoteTally } from './support'
 import { debugStartLiveGame, debugMbappeGoal, debugSubstitution } from './debug'
+import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 
 type View = 'matches' | 'bracket' | 'detail'
 
@@ -39,6 +40,7 @@ export function mountPhone() {
           <button data-view="bracket">Bracket</button>
         </nav>
       </header>
+      <div id="location-strip"></div>
       <main id="content"></main>
     </div>
     <div class="debug-bar" role="toolbar" aria-label="debug controls">
@@ -50,7 +52,16 @@ export function mountPhone() {
   root.addEventListener('click', onClick)
 
   store.subscribe(() => detectGoals())
+  void initSettings().then(() => { renderLocation(); renderPhone() })
+  renderLocation()
   renderPhone()
+}
+
+function renderLocation() {
+  const host = document.querySelector<HTMLElement>('#location-strip')
+  if (!host) return
+  host.innerHTML = renderLocationStrip()
+  mountLocationStrip(host)
 }
 
 function detectGoals() {
@@ -157,6 +168,8 @@ function syncTabs() {
   })
 }
 
+export function rerender() { renderPhone() }
+
 function flagImg(code: TeamCode | null | undefined, cls = 'flag'): string {
   if (!code) return `<div class="${cls} placeholder" aria-hidden="true"></div>`
   const t = TEAMS[code]
@@ -244,10 +257,13 @@ function matchRow(m: Match): string {
       <span class="stage">${m.stage}</span>
     `
   } else if (m.state === 'ft') {
+    /* FT row layout: score on row 1, 'FT · PEN · STAGE' centered on row 2.
+     * Stage collapses into the meta line per spec — keeps the result info
+     * on a single centered row instead of stacking across three. */
+    const ftMeta = `${pen ? 'FT · PEN' : 'FT'} · ${m.stage}`
     center = `
       <span class="score">${m.homeScore}-${m.awayScore}${pen ? ` <span class="row-pen">(${m.homePenalty}-${m.awayPenalty} pen)</span>` : ''}</span>
-      <span class="meta">${pen ? 'FT · PEN' : 'FT'}</span>
-      <span class="stage">${m.stage}</span>
+      <span class="meta">${ftMeta}</span>
     `
   } else {
     center = `
@@ -297,7 +313,8 @@ function renderDetail(): string {
   const away = m.away ?? 'TBD'
   const score = m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs'
   const pen = m.homePenalty != null && m.awayPenalty != null
-  const penLine = pen ? `<div class="detail-pen">PEN ${m.homePenalty}-${m.awayPenalty}</div>` : ''
+  /* Always show the PEN row; '--' placeholder until a shootout starts. */
+  const penLine = `<div class="detail-pen">PEN ${pen ? `${m.homePenalty}-${m.awayPenalty}` : '--'}</div>`
   const status =
     m.state === 'live' ? `<span class="live-dot"></span>${m.minute}' &middot; ${m.stage}` :
     m.state === 'ft' ? `${pen ? 'FT · PEN' : 'FT'} &middot; ${m.stage}` :
