@@ -86,8 +86,8 @@
 
   /* Radii */
   --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
+  --r-md: 6px;   /* card radius — Even Realities app convention */
+  --r-lg: 6px;   /* large cards (detail, dialog) — same as cards */
   --r-pill: 999px;
 
   /* Elevation — Library 3.0 (approximated) */
@@ -190,7 +190,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 
 .tabs {
   display: inline-flex;
-  background: var(--surface-1);
+  background: #E4E4E4;   /* matches the brightness slider track in the Even Realities home */
   border-radius: var(--r-pill);
   padding: 4px;
   gap: 2px;
@@ -229,12 +229,15 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   padding: 0 4px var(--s-3);
 }
 .section-title {
-  font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  font-weight: 500;
+  /* Brand subtitle: 13px / Regular 400 / 16.64px line / -0.39 tracking.
+   * Title case (text-transform removed) — section strings already arrive
+   * cased correctly ("Live" / "Upcoming" / "Results"). */
+  font-family: var(--font-en);
+  font-size: 13px;
+  line-height: 16.64px;
+  letter-spacing: -0.39px;
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 .section-count {
   font-size: 11px;
@@ -249,7 +252,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   box-shadow: var(--elev-low);
   padding: var(--s-4);
 }
-.card + .card { margin-top: var(--s-2); }
+.card + .card { margin-top: 5px; }
 
 /* Location strip — compact timezone selector pinned just under the topbar.
  * Replaces the prior Settings tab per design feedback: same control surface,
@@ -618,12 +621,14 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   padding: 0 4px var(--s-2);
 }
 .br-section-title {
-  font-size: 11px;
-  line-height: 16px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  font-weight: 500;
+  /* Brand subtitle — same as .section-title. STAGE_LABEL strings already
+   * arrive in title case ("Group Stage", "Round of 16", "Quarterfinals"). */
+  font-family: var(--font-en);
+  font-size: 13px;
+  line-height: 16.64px;
+  letter-spacing: -0.39px;
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 .br-section-count {
   font-size: 11px;
@@ -856,7 +861,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   box-shadow: var(--elev-low);
   overflow: hidden;
 }
-.match-card + .match-card { margin-top: var(--s-2); }
+.match-card + .match-card { margin-top: 5px; }
 .match-card-live { box-shadow: 0 0 0 1px var(--live), 0 1px 2px rgba(255,84,84,0.10); }
 /* Inside a match-card, the inner .row drops its own card shadow/bg —
    the card chrome is on the wrapper now. */
