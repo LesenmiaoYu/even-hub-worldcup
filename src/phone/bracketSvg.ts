@@ -247,11 +247,22 @@ export function renderBracketSvg(matches: Match[]): string {
 
   /* Mini-tree is conditional: skip if EVERY QF/SF/F slot is fully TBD
    * (both opponents null) AND has no scheduled kickoffAt. Avoids rendering
-   * an empty grid when the bracket has nothing to show yet. */
+   * an empty grid when the bracket has nothing to show yet. When matches
+   * exist but no QF is scheduled, we swap the tree slot for a small
+   * placeholder card so the page still says "bracket coming" — the
+   * upcoming GS/R16 section lists below continue to render normally. */
   const treeMatches = [...qfs, ...sfs, ...(fin ? [fin] : [])]
   const hasAnyInfo = treeMatches.some(m =>
     (m.home != null && m.away != null) || !!m.kickoffAt || m.state === 'live' || m.state === 'ft'
   )
+  const treeSlot = hasAnyInfo
+    ? `<div class="br-mini-wrap">${miniTree(qfs, sfs, fin)}</div>`
+    : (matches.length > 0
+        ? `<div class="bracket-empty">
+             <div class="be-title">No bracket yet</div>
+             <div class="be-sub">The bracket will appear here once the Quarterfinals are scheduled.</div>
+           </div>`
+        : '')
 
   /* Tournament-flow order: GS → R16 → QF → SF → F → 3rd. The mini-tree
    * at top still shows only the 4-QF→2-SF→F core; GS + R16 are sectioned
@@ -259,7 +270,7 @@ export function renderBracketSvg(matches: Match[]): string {
    * later rounds so the visual style stays consistent. */
   return `
     <div class="bracket-page">
-      ${hasAnyInfo ? `<div class="br-mini-wrap">${miniTree(qfs, sfs, fin)}</div>` : ''}
+      ${treeSlot}
       ${sectionList(STAGE_LABEL.GS, gs)}
       ${sectionList(STAGE_LABEL.R16, r16)}
       ${sectionList(STAGE_LABEL.QF, qfs)}
