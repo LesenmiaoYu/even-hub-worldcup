@@ -313,6 +313,8 @@ function renderDetail(): string {
   if (!m) return renderMatches()
   const home = m.home ?? 'TBD'
   const away = m.away ?? 'TBD'
+  const homeName = m.home ? TEAMS[m.home]?.name ?? '' : ''
+  const awayName = m.away ? TEAMS[m.away]?.name ?? '' : ''
   const score = m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs'
   const pen = m.homePenalty != null && m.awayPenalty != null
   /* Always show the PEN row; '--' placeholder until a shootout starts. */
@@ -349,13 +351,19 @@ function renderDetail(): string {
     <button class="back" data-back="1">&larr; Back</button>
     <div class="detail-card">
       <div class="detail-head">
-        <div class="side big">${flagImg(m.home)}<span class="code big">${home}</span></div>
+        <div class="side big">
+          <div class="team-line">${flagImg(m.home)}<span class="code big">${home}</span></div>
+          ${homeName ? `<div class="team-name">${homeName}</div>` : ''}
+        </div>
         <div class="center">
           <div class="score big">${score}</div>
           ${penLine}
           <div class="status-line">${status}</div>
         </div>
-        <div class="side big right"><span class="code big">${away}</span>${flagImg(m.away)}</div>
+        <div class="side big right">
+          <div class="team-line"><span class="code big">${away}</span>${flagImg(m.away)}</div>
+          ${awayName ? `<div class="team-name">${awayName}</div>` : ''}
+        </div>
       </div>
       ${m.venue ? `<div class="venue">${m.venue}</div>` : ''}
       <div class="detail-vote">${voteSurface(m)}</div>
