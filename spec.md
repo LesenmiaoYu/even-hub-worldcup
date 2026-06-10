@@ -72,7 +72,7 @@ Deploy: the static phone+glasses bundle ships as a single `.ehpk` built from the
 
 ### Server-authoritative invariant
 
-Clients never mutate `Match` state from local inputs. The phone vote surface and goal toast are read-derived (the toast watches the store's live-goal count delta). All match facts originate in iSports and pass through `MatchStore.patchLivescore` / `upsertEvent` / `replaceAll`. The store fans out deltas; both surfaces re-render from the deltas.
+Clients never mutate `Match` state from local inputs. The phone surfaces and goal toast are read-derived (the toast watches the store's live-goal count delta). All match facts originate in iSports and pass through `MatchStore.patchLivescore` / `upsertEvent` / `replaceAll`. The store fans out deltas; surfaces re-render from the deltas.
 
 ---
 
@@ -392,24 +392,13 @@ Card is `role="button" tabindex="0"` with `data-match-id` → tap routes to deta
 
 ### 5.5 Detail view (`renderDetail`, `mount.ts:292-347`)
 
-Renders when `view === 'detail' && detailMatchId`. Back button on top. Big detail-head: home flag+code, center score (`H - A` or `vs`), optional `<div class="detail-pen">PEN H-A</div>`, status line (live dot + minute + stage, or `FT · PEN` + stage, or kickoff in user TZ + stage), optional venue line. Vote surface below; events feed reverse-chronological with minute, typed chip (Goal/Yellow/Red/HT/Sub/FT), and player name (or `OUT → IN` for subs).
+Renders when `view === 'detail' && detailMatchId`. Back button on top. Big detail-head: home flag+code with full team name below, center score (`H - A` or `vs`), optional `<div class="detail-pen">PEN H-A</div>`, status line (live dot + minute + stage, or `FT · PEN` + stage, or kickoff in user TZ + stage), optional venue line. Events feed reverse-chronological with minute, typed chip (Goal/Yellow/Red/HT/Sub/FT), and player name (or `OUT → IN` for subs).
 
-### 5.6 Per-match support vote (`src/phone/support.ts`)
-
-Detail-only. localStorage persistence:
-
-- `vote.{matchId}` → `'home' | 'away'`
-- `tally.{matchId}` → `"H:A"`
-
-`seedBaseline(matchId)` (30-45): FNV-1a hash → xorshift PRNG → deterministic 100–500 baseline per side per match (no network call).
-
-Surface (`voteSurface`, 217-229): chips if not yet voted on live/scheduled; frozen split-bar if FT or already voted.
-
-### 5.7 Goal toast (`mount.ts:56-67`, `src/phone/toast.ts`)
+### 5.6 Goal toast (`mount.ts`, `src/phone/toast.ts`)
 
 Store subscription watches live-goal count delta after first non-zero baseline. Fires `toast('Goal — {team}', '{player} {min}'')` with `variant: 'goal'`. Single `.toast-host` div, `.show` animation, 2500 ms default.
 
-### 5.8 Phone → glasses nav bridge
+### 5.7 Phone → glasses nav bridge
 
 `setPhoneNavListener` / `emitNav` (`mount.ts:18-23`):
 
@@ -821,7 +810,6 @@ even-hub-worldcup/
 │   │   ├── mount.ts                         # mountPhone, tabs, renderMatches, renderDetail, nav bridge
 │   │   ├── bracketSvg.ts                    # renderBracketSvg, miniTree, 2-row bracketCard, tbdSlotLabel
 │   │   ├── settings.ts                      # renderLocationStrip + mountLocationStrip (timezone picker)
-│   │   ├── support.ts                       # localStorage vote/tally, seedBaseline
 │   │   ├── toast.ts                         # single .toast-host, goal variant
 │   │   └── dialog.ts                        # confirm/alert helpers (exported, currently unused)
 │   │

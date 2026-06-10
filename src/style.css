@@ -849,7 +849,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .dialog-actions button:active { background: var(--surface-1); }
 .dialog-actions.single { grid-template-columns: 1fr; }
 
-/* Match card — wrapper for row + per-match vote surface. */
+/* Match card — wrapper for the row. */
 .match-card {
   background: var(--surface-0);
   border-radius: var(--r-md);
@@ -866,111 +866,6 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   background: transparent;
 }
 .match-card .row + .row { margin-top: 0; }
-
-/* Per-match Support Vote — chip → percentage bar.
- * Match-based, not team-based: one poll per match (spec §6.3). */
-.vote-wrap {
-  padding: 0 var(--s-4) var(--s-3);
-}
-.vote-wrap.chips {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--s-2);
-  padding-top: 2px;
-}
-.vote-chip {
-  appearance: none;
-  background: var(--surface-1);
-  border: 0;
-  border-radius: var(--r-sm);
-  padding: 8px var(--s-3);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.6px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-variant-numeric: tabular-nums;
-  transition: background 120ms ease, transform 80ms ease, opacity 200ms ease;
-}
-.vote-chip:active { transform: scale(0.97); background: var(--surface-2); }
-.vote-chip[disabled] { opacity: 0.4; cursor: default; }
-.vote-wrap.voting .vote-chip { opacity: 0; transform: scale(0.96); pointer-events: none; }
-
-.vote-wrap.bar {
-  padding-top: 2px;
-  animation: vote-fade-in 220ms ease;
-}
-.vote-bar {
-  display: flex;
-  align-items: stretch;
-  height: 28px;
-  border-radius: var(--r-sm);
-  background: var(--surface-1);
-  overflow: hidden;
-  position: relative;
-}
-.vote-bar-side {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.4px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  transition: width 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.vote-bar-side.home {
-  background: var(--surface-2);
-  justify-content: flex-start;
-  padding-left: 10px;
-}
-.vote-bar-side.away {
-  background: var(--surface-1);
-  justify-content: flex-end;
-  padding-right: 10px;
-}
-.vote-bar-side.picked {
-  color: var(--text-primary);
-}
-.vote-bar-side.home.picked { background: var(--er-black); color: var(--text-inverse); }
-.vote-bar-side.away.picked { background: var(--er-black); color: var(--text-inverse); }
-.vote-divider {
-  width: 1px;
-  background: var(--neutral-0);
-  flex-shrink: 0;
-}
-.vote-bar-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.vote-pct { font-weight: 600; }
-.vote-code { color: inherit; opacity: 0.85; }
-.vote-bar-side.picked .vote-code { opacity: 1; }
-.vote-dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.vote-wrap.bar.frozen .vote-bar-side { background: var(--surface-1); color: var(--text-tertiary); }
-.vote-wrap.bar.frozen .vote-bar-side.home { background: var(--surface-2); }
-.vote-wrap.bar.frozen .vote-bar-side.picked { background: var(--neutral-700); color: var(--text-inverse); }
-
-/* Detail view — vote surface sits between venue and events. */
-.detail-vote {
-  margin: var(--s-3) 0 var(--s-4);
-}
-.detail-vote .vote-wrap { padding: 0; }
-
-@keyframes vote-fade-in {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }

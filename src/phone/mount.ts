@@ -3,7 +3,6 @@ import { TEAMS } from '../mock/teams'
 import type { Match, Stage, TeamCode } from '../types'
 import { toast } from './toast'
 import { renderBracketSvg } from './bracketSvg'
-import { castVote, getTallySync, getUserVote, type Side, type VoteTally } from './support'
 import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 
 type View = 'matches' | 'bracket' | 'detail'
@@ -84,21 +83,6 @@ async function onClick(e: Event) {
   const target = e.target as HTMLElement
   if (!target) return
 
-  const voteEl = target.closest<HTMLElement>('[data-vote]')
-  if (voteEl) {
-    const side = voteEl.dataset.vote as Side
-    const matchId = voteEl.dataset.matchId
-    if (matchId && (side === 'home' || side === 'away')) {
-      await onVote(matchId, side, voteEl)
-    }
-    return
-  }
-
-  if (target.closest('.vote-bar')) {
-    /* Already voted — single-vote-per-match-per-session. Silent. */
-    return
-  }
-
   const tabBtn = target.closest<HTMLElement>('#tabs button')
   if (tabBtn?.dataset.view) {
     const v = tabBtn.dataset.view as View
@@ -135,22 +119,6 @@ async function onClick(e: Event) {
 
 }
 
-async function onVote(matchId: string, side: Side, chipEl: HTMLElement) {
-  const m = store.get(matchId)
-  if (!m || (m.state !== 'live' && m.state !== 'scheduled')) return
-  if (getUserVote(matchId)) return
-  const wrap = chipEl.closest<HTMLElement>('.vote-wrap')
-  if (wrap) wrap.classList.add('voting')
-  const tally = await castVote(matchId, side)
-  /* Find every render of this match's vote-wrap and swap to bar. */
-  const targets = document.querySelectorAll<HTMLElement>(`.vote-wrap[data-vote-match="${matchId}"]`)
-  targets.forEach((el) => {
-    el.outerHTML = voteBarMarkup(m, tally, side)
-  })
-  const code = side === 'home' ? m.home : m.away
-  toast('Vote counted', code ? `You voted ${code}.` : 'Vote recorded.')
-}
-
 function wasInBracket(): boolean {
   if (!detailMatchId) return false
   const m = store.get(detailMatchId)
@@ -185,62 +153,6 @@ function formatOffset(min: number): string {
   const h = Math.round(min / 60)
   if (h < 24) return `in ${h}h`
   return `in ${Math.round(h / 24)}d`
-}
-
-function voteChipsMarkup(m: Match): string {
-  const home = m.home ?? '?'
-  const away = m.away ?? '?'
-  const tbd = !m.home || !m.away
-  return `
-    <div class="vote-wrap chips" data-vote-match="${m.id}">
-      <button class="vote-chip" data-vote="home" data-match-id="${m.id}" ${tbd ? 'disabled' : ''}>VOTE ${home}</button>
-      <button class="vote-chip" data-vote="away" data-match-id="${m.id}" ${tbd ? 'disabled' : ''}>VOTE ${away}</button>
-    </div>
-  `
-}
-
-function voteBarMarkup(m: Match, tally: VoteTally, userSide: Side | null): string {
-  const homeCode = m.home ?? '?'
-  const awayCode = m.away ?? '?'
-  const frozenCls = m.state === 'ft' ? ' frozen' : ''
-  const pickedHome = userSide === 'home' ? ' picked' : ''
-  const pickedAway = userSide === 'away' ? ' picked' : ''
-  const aria = userSide ? `You voted ${userSide === 'home' ? homeCode : awayCode}` : 'Final community sentiment'
-  return `
-    <div class="vote-wrap bar${frozenCls}" data-vote-match="${m.id}" title="${aria}" aria-label="${aria}">
-      <div class="vote-bar">
-        <div class="vote-bar-side home${pickedHome}" style="width:${tally.homePct}%">
-          <span class="vote-bar-label">
-            ${userSide === 'home' ? '<span class="vote-dot"></span>' : ''}
-            <span class="vote-pct">${tally.homePct}%</span>
-            <span class="vote-code">${homeCode}</span>
-          </span>
-        </div>
-        <div class="vote-divider"></div>
-        <div class="vote-bar-side away${pickedAway}" style="width:${tally.awayPct}%">
-          <span class="vote-bar-label">
-            <span class="vote-code">${awayCode}</span>
-            <span class="vote-pct">${tally.awayPct}%</span>
-            ${userSide === 'away' ? '<span class="vote-dot"></span>' : ''}
-          </span>
-        </div>
-      </div>
-    </div>
-  `
-}
-
-function voteSurface(m: Match): string {
-  /* Past matches → always frozen bar (no chips). */
-  if (m.state === 'ft') {
-    const tally = getTallySync(m.id)
-    return voteBarMarkup(m, tally, getUserVote(m.id))
-  }
-  /* Live / scheduled → if already voted, show bar; else show chips. */
-  const userVote = getUserVote(m.id)
-  if (userVote) {
-    return voteBarMarkup(m, getTallySync(m.id), userVote)
-  }
-  return voteChipsMarkup(m)
 }
 
 function matchRow(m: Match): string {
@@ -366,7 +278,6 @@ function renderDetail(): string {
         </div>
       </div>
       ${m.venue ? `<div class="venue">${m.venue}</div>` : ''}
-      <div class="detail-vote">${voteSurface(m)}</div>
       <h4>Events</h4>
       ${events}
     </div>
