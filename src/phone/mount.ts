@@ -167,7 +167,7 @@ function matchRow(m: Match): string {
     cls += ' live'
     center = `
       <span class="score">${m.homeScore}-${m.awayScore}</span>
-      <span class="live-badge"><span class="live-dot"></span>${m.minute}'</span>
+      <span class="live-badge"><span class="live-dot"></span>${m.minute ?? '-'}'</span>
       <span class="stage">${m.stage}</span>
     `
   } else if (m.state === 'ft') {
@@ -232,7 +232,7 @@ function renderDetail(): string {
   /* Always show the PEN row; '--' placeholder until a shootout starts. */
   const penLine = `<div class="detail-pen">PEN ${pen ? `${m.homePenalty}-${m.awayPenalty}` : '--'}</div>`
   const status =
-    m.state === 'live' ? `<span class="live-dot"></span>${m.minute}' &middot; ${m.stage}` :
+    m.state === 'live' ? `<span class="live-dot"></span>${m.minute ?? '-'}' &middot; ${m.stage}` :
     m.state === 'ft' ? `${pen ? 'FT · PEN' : 'FT'} &middot; ${m.stage}` :
     `${formatOffset(m.kickoffOffsetMin)} &middot; ${m.stage}`
 
