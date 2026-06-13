@@ -69,7 +69,16 @@ export class Store {
   }
 
   getUpcoming(): Match[] {
-    return this.matches.filter(m => m.state === 'scheduled')
+    /* Defensive past-kickoff filter. iSports occasionally drops finished
+     * matches from /livescores/changes before emitting a final state:'ft',
+     * so server-side state can be stale for hours until the 12h /schedule
+     * re-hydrate catches up. A true "upcoming" match always has a future
+     * kickoff — if kickoff is already in the past, the match is either
+     * live (state would be 'live') or finished (state should be 'ft'),
+     * never genuinely upcoming. Filtering on kickoffAt directly is safer
+     * than trusting the state field alone. */
+    const nowIso = new Date().toISOString()
+    return this.matches.filter(m => m.state === 'scheduled' && (!m.kickoffAt || m.kickoffAt > nowIso))
   }
 
   getPast(): Match[] {
