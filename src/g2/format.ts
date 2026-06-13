@@ -94,6 +94,33 @@ function ymdInZone(d: Date, tz: string): string {
 function addDays(d: Date, n: number): Date {
   return new Date(d.getTime() + n * 24 * 60 * 60 * 1000)
 }
+
+/* Live match clock with iSports-lag fallback.
+ *
+ * Returns the displayable match minute for a LIVE match:
+ *   - if iSports has emitted m.minute, that wins (canonical)
+ *   - else derive from kickoffAt elapsed (with halftime-break adjustment)
+ *   - else null (state isn't live, or no kickoff known)
+ *
+ * iSports occasionally flips a match to state:'live' before its clock
+ * arrives — the score lands first, then the minute. Without a fallback
+ * the UI would render '-' or 'null'. The derived clock is correct
+ * within ~1 min for 1st half and within ~5 min for 2nd half (uncertainty
+ * = actual stoppage time + how long extra-time / pause we don't know
+ * about). Once iSports does emit, the SSE delta overrides everything. */
+export function liveMinute(m: Match): number | null {
+  if (m.minute != null) return m.minute
+  if (m.state !== 'live') return null
+  if (!m.kickoffAt) return null
+  const elapsed = Math.floor((Date.now() - new Date(m.kickoffAt).getTime()) / 60000)
+  if (elapsed < 0) return null
+  if (elapsed < 45) return elapsed                /* 1st half */
+  if (elapsed < 60) return 45                     /* halftime window — pin at 45 until 2nd half resumes */
+  /* 2nd half / ET — subtract a 15min HT break from elapsed. Cap at 120
+   * (end of regulation extra time); penalty shootouts are flagged
+   * elsewhere via hasShootout(). */
+  return Math.min(elapsed - 15, 120)
+}
 function formatClock(d: Date, tz: string): string {
   try {
     const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true }).format(d)
@@ -129,7 +156,7 @@ export function statusLabel(m: Match): string {
     const d = Math.round(h / 24)
     return `in ${d}d`
   }
-  const min = m.minute ?? 0
+  const min = liveMinute(m) ?? 0
   if (min < 45) return `1H  ${min}`
   if (min === 45 || min === 46) return `HT`
   if (min < 90) return `2H  ${min}`
@@ -162,7 +189,7 @@ export function statusVerbose(m: Match): string {
     if (h < 24) return `KICKOFF IN ${h}H`
     return `KICKOFF IN ${Math.round(h / 24)} DAYS`
   }
-  const min = m.minute ?? 0
+  const min = liveMinute(m) ?? 0
   if (min < 45) return `FIRST HALF  ${min} MIN`
   if (min === 45 || min === 46) return `HALF TIME`
   if (min < 90) return `SECOND HALF  ${min} MIN`
@@ -271,7 +298,7 @@ export function listLeft(m: Match): string {
 }
 
 export function listRight(m: Match): string {
-  if (m.state === 'live') return `LIVE ${m.minute ?? ''}  ${m.homeScore}-${m.awayScore}`
+  if (m.state === 'live') return `LIVE ${liveMinute(m) ?? ''}  ${m.homeScore}-${m.awayScore}`
   if (m.state === 'ft') {
     if (hasShootout(m)) return `FT ${m.homeScore}-${m.awayScore} (${m.homePenalty}-${m.awayPenalty}p)`
     return `FT  ${m.homeScore}-${m.awayScore}`
