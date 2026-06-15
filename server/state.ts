@@ -100,10 +100,18 @@ export class MatchStore {
    * false if it was a duplicate or the match doesn't exist.
    *
    * This is the iSports /events poll's entry point. The events feed is
-   * the source of truth for the event TIMELINE only — score is owned by
-   * the /livescores poll (see `patchLivescore`), so we deliberately do
-   * NOT pass scoreDelta here. Mock-path callers should keep using
-   * `applyEvent`. */
+   * the source of truth for the event TIMELINE.
+   *
+   * Score reconciliation: /livescores/changes is incremental and
+   * frequently lags or stops emitting for a match (same root cause as
+   * the scheduled→live stall the sweep handles). The events feed is
+   * independent and almost always ahead — when a goal arrives here but
+   * /livescores hasn't bumped the score yet, the UI ends up showing the
+   * stale scoreline alongside a fresh GOAL chip ("0-1 with two goal
+   * rows" is the user-visible symptom). So we treat the per-side goal
+   * count as a FLOOR on the score: take max(currentScore, goalCount).
+   * If iSports later sends a higher number via /livescores, that wins
+   * (patchLivescore is unconditional). */
   upsertEvent(matchId: string, event: MatchEvent): boolean {
     const m = this.get(matchId)
     if (!m) return false
@@ -112,6 +120,18 @@ export class MatchStore {
       if (dup) return false
     }
     m.events.push(event)
+
+    if (event.type === 'goal' && event.side) {
+      const count = m.events.filter(
+        e => e.type === 'goal' && e.side === event.side,
+      ).length
+      if (event.side === 'home') {
+        if (m.homeScore === null || count > m.homeScore) m.homeScore = count
+      } else {
+        if (m.awayScore === null || count > m.awayScore) m.awayScore = count
+      }
+    }
+
     this.emit({
       type: 'event-applied',
       matchId,

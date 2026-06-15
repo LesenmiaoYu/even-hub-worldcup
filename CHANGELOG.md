@@ -5,6 +5,7 @@
 - Language picker no longer overflows the WebView. New hamburger button next to Matches / Bracket opens a settings panel with stacked Timezone + Language rows (full-width selects, no horizontal scrolling on narrow viewports).
 - Repo is now open-source under MIT. See `README.md`, `CONTRIBUTING.md`, `LICENSE`.
 - New `USE_FIXTURES=true` server mode boots from a captured iSports snapshot at `server/fixtures/schedule-wc2026.json` — contributors can run the full stack without an API key.
+- **Server fix (benefits all installed clients, no repack needed)**: the score now stays in sync with the goal events. iSports' `/livescores/changes` feed sometimes lags or stops emitting for a match while `/events` keeps streaming goals — the symptom was "scoreline stuck at 1-0 even though the events log shows 3 goals." We now treat the per-side goal count from the events feed as a floor on the score. `/livescores/changes` updates still win when they go higher.
 
 ## 2.0.0 — 2026-06-15
 **Public release.** Same surface as 1.4.0; major bump signals "ready for the world."
