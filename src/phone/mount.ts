@@ -38,16 +38,26 @@ export function mountPhone() {
           <div class="brand" id="stage-title">&mdash;</div>
           <div class="brand-tag" id="stage-sub">&mdash;</div>
         </div>
-        <nav class="tabs" id="tabs">
-          <button data-view="matches" class="active">${t('tab_matches')}</button>
-          <button data-view="bracket">${t('tab_bracket')}</button>
-        </nav>
+        <div class="topbar-actions">
+          <nav class="tabs" id="tabs">
+            <button data-view="matches" class="active">${t('tab_matches')}</button>
+            <button data-view="bracket">${t('tab_bracket')}</button>
+          </nav>
+          <button class="settings-btn" id="settings-btn" type="button" aria-label="Settings" aria-expanded="false">
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" aria-hidden="true">
+              <rect width="18" height="2" rx="1" fill="currentColor"/>
+              <rect y="6" width="18" height="2" rx="1" fill="currentColor"/>
+              <rect y="12" width="18" height="2" rx="1" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
       </header>
-      <div id="location-strip"></div>
+      <div id="settings-panel" class="settings-panel" hidden></div>
       <main id="content"></main>
     </div>
   `
   root.addEventListener('click', onClick)
+  document.addEventListener('click', onDocClick)
 
   /* Deep-link: #match=<id> opens straight into Detail view for that
    * match. main.ts has a mirror check that routes the glasses-side L2. */
@@ -65,10 +75,28 @@ export function mountPhone() {
 }
 
 function renderLocation() {
-  const host = document.querySelector<HTMLElement>('#location-strip')
+  const host = document.querySelector<HTMLElement>('#settings-panel')
   if (!host) return
   host.innerHTML = renderLocationStrip()
   mountLocationStrip(host)
+}
+
+function setSettingsOpen(open: boolean) {
+  const panel = document.querySelector<HTMLElement>('#settings-panel')
+  const btn = document.querySelector<HTMLButtonElement>('#settings-btn')
+  if (!panel || !btn) return
+  panel.hidden = !open
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false')
+  btn.classList.toggle('active', open)
+}
+
+function onDocClick(e: Event) {
+  const target = e.target as HTMLElement | null
+  if (!target) return
+  const panel = document.querySelector<HTMLElement>('#settings-panel')
+  if (!panel || panel.hidden) return
+  if (target.closest('#settings-panel') || target.closest('#settings-btn')) return
+  setSettingsOpen(false)
 }
 
 function detectGoals() {
@@ -91,6 +119,14 @@ function detectGoals() {
 async function onClick(e: Event) {
   const target = e.target as HTMLElement
   if (!target) return
+
+  const settingsBtn = target.closest<HTMLElement>('#settings-btn')
+  if (settingsBtn) {
+    e.stopPropagation()
+    const panel = document.querySelector<HTMLElement>('#settings-panel')
+    setSettingsOpen(panel?.hidden ?? true)
+    return
+  }
 
   const tabBtn = target.closest<HTMLElement>('#tabs button')
   if (tabBtn?.dataset.view) {

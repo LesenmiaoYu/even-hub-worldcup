@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0 — 2026-06-15
+**Settings hamburger + open-source.**
+- Language picker no longer overflows the WebView. New hamburger button next to Matches / Bracket opens a settings panel with stacked Timezone + Language rows (full-width selects, no horizontal scrolling on narrow viewports).
+- Repo is now open-source under MIT. See `README.md`, `CONTRIBUTING.md`, `LICENSE`.
+- New `USE_FIXTURES=true` server mode boots from a captured iSports snapshot at `server/fixtures/schedule-wc2026.json` — contributors can run the full stack without an API key.
+
 ## 2.0.0 — 2026-06-15
 **Public release.** Same surface as 1.4.0; major bump signals "ready for the world."
 

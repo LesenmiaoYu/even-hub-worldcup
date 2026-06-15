@@ -46,8 +46,8 @@ function groupedRegions(): Array<[string, typeof REGIONS]> {
   return ordered
 }
 
-/* Small top-strip control. Persists across views — sets the timezone used
- * by glasses kickoff labels + bracket badges. */
+/* Settings panel — anchored to the gear button in the topbar. Stacked rows
+ * (label + full-width select) so nothing ever overflows the narrow WebView. */
 export function renderLocationStrip(): string {
   const s = settingsStore.get()
   const groups = groupedRegions()
@@ -63,11 +63,15 @@ export function renderLocationStrip(): string {
   const tzLabel = t('settings_timezone')
   const langLabel = t('settings_language')
   return `
-    <div class="loc-strip">
-      <span class="loc-label">${tzLabel}</span>
-      <select class="loc-select" data-setting="timezone" aria-label="${tzLabel}">${tzOpts}</select>
-      <span class="loc-label loc-label-lang">${langLabel}</span>
-      <select class="loc-select loc-select-lang" data-setting="language" aria-label="${langLabel}">${langOpts}</select>
+    <div class="settings-card">
+      <div class="settings-row">
+        <span class="settings-label">${tzLabel}</span>
+        <select class="settings-select" data-setting="timezone" aria-label="${tzLabel}">${tzOpts}</select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">${langLabel}</span>
+        <select class="settings-select" data-setting="language" aria-label="${langLabel}">${langOpts}</select>
+      </div>
     </div>
   `
 }

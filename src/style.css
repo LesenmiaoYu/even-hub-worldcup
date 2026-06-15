@@ -254,16 +254,54 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 .card + .card { margin-top: 5px; }
 
-/* Location strip — compact timezone selector pinned just under the topbar.
- * Replaces the prior Settings tab per design feedback: same control surface,
- * tiny footprint, always visible. */
-.loc-strip {
+/* Topbar action cluster — tabs + settings hamburger sit together on the right. */
+.topbar-actions {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 6px 0 var(--s-3);
 }
-.loc-label {
+.settings-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.settings-btn:hover { background: #E4E4E4; }
+.settings-btn.active { background: var(--er-black); color: var(--text-inverse); }
+
+/* Settings dropdown — anchored under the topbar on the right, slides in
+ * when the hamburger is tapped. Stacked rows (label + full-width select)
+ * so nothing overflows the narrow Even App WebView. */
+.settings-panel {
+  position: absolute;
+  top: calc(var(--s-5) + 32px + env(safe-area-inset-top, 0px));
+  right: var(--s-4);
+  z-index: 11;
+  width: min(280px, calc(100vw - var(--s-4) * 2));
+}
+.settings-card {
+  background: var(--surface-0);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.06);
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-label {
   font-size: 11px;
   line-height: 16px;
   letter-spacing: 1.2px;
@@ -271,37 +309,26 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   color: var(--text-tertiary);
   font-weight: 500;
 }
-.loc-country {
-  margin-left: auto;
-  font-size: 11px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.loc-select {
+.settings-select {
   appearance: none;
   -webkit-appearance: none;
+  width: 100%;
   background: var(--surface-1);
   border: 0;
   border-radius: var(--r-sm);
-  padding: 4px 24px 4px 10px;
+  padding: 8px 28px 8px 12px;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.24px;
+  letter-spacing: -0.26px;
   color: var(--text-primary);
   cursor: pointer;
   background-image: linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%),
                     linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%);
-  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%;
+  background-position: calc(100% - 14px) 50%, calc(100% - 10px) 50%;
   background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
-  max-width: 220px;
 }
-.loc-strip .loc-label-lang { margin-left: auto; }
-.loc-strip .loc-select-lang { max-width: 110px; }
 
 /* Match row card */
 .row {
