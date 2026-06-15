@@ -200,10 +200,14 @@ describe('asciiName', () => {
     expect(asciiName('Álvarez')).toBe('Alvarez')
     expect(asciiName('Di María')).toBe('Di Maria')
   })
-  it('strips non-printable + non-ASCII chars', () => {
-    expect(asciiName('helloworld')).toBe('helloworld')
-    /* Smart quotes / em dash / CJK — outside printable ASCII, all stripped. */
-    expect(asciiName('“quote” — 中文')).toBe('quote  ')
+  it('passes CJK and other Unicode through unchanged (v1.4: firmware renders CJK)', () => {
+    /* helloworld preserved; v1.4 keeps the regression guard for plain Latin. */
+    expect(asciiName('helloworld')).toBe('helloworld')
+    /* v1.4: David confirmed firmware renders CJK. asciiName now only
+     * strips Latin combining marks (accents). Smart quotes, em dash,
+     * CJK all pass through verbatim. */
+    expect(asciiName('“quote” — 中文')).toBe('“quote” — 中文')
+    expect(asciiName('日本語テスト')).toBe('日本語テスト')
   })
   it('PRESERVES \\n so multi-line strings survive sanitization', () => {
     /* Regression guard: callers join lines with \n then asciiName the

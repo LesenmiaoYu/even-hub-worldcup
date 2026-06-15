@@ -1,5 +1,12 @@
 import type { Match, MatchEvent } from '../types'
 import { settingsStore } from '../state/settingsStore'
+import { t } from '../i18n'
+
+/* BCP-47 tag for Intl.DateTimeFormat. Mirrors settingsStore.language. */
+function intlLocale(): string {
+  const lang = settingsStore.get().language
+  return ({ en: 'en-US', zh: 'zh-CN', ja: 'ja-JP', es: 'es-ES' } as const)[lang] ?? 'en-US'
+}
 
 /* Format a scheduled kickoff for the glasses event log.
  * Uses Match.kickoffAt + user timezone (settingsStore) to produce:
@@ -8,13 +15,14 @@ import { settingsStore } from '../state/settingsStore'
  *   - 'Tomorrow, 3PM'   (next calendar day in user TZ)
  *   - '7/15 3PM'        (later, MM/DD)
  * Falls back to the legacy relative 'Xm/Xh/Xd' if kickoffAt is missing.
- * Output is ASCII-only — printable \x20-\x7E, safe for asciiName(). */
+ * Strings are routed through t() so non-EN locales get translated.
+ * Date/time pieces (clock + MD) localize via intlLocale(). */
 export function kickoffGlassesLabel(m: Match): string {
   const offMin = m.kickoffOffsetMin
   if (!m.kickoffAt) {
-    if (offMin < 60) return `${offMin}m`
-    if (offMin < 24 * 60) return `${Math.floor(offMin / 60)}h`
-    return `${Math.round(offMin / 60 / 24)}d`
+    if (offMin < 60) return t('glasses_kickoff_in_minutes', { n: offMin })
+    if (offMin < 24 * 60) return t('glasses_kickoff_hours_short', { n: Math.floor(offMin / 60) })
+    return t('glasses_kickoff_days_short', { n: Math.round(offMin / 60 / 24) })
   }
   const tz = settingsStore.get().timezone
   const now = new Date()
@@ -23,11 +31,11 @@ export function kickoffGlassesLabel(m: Match): string {
   const nextDay = isSameDayInZone(addDays(now, 1), kick, tz)
   const clock = formatClock(kick, tz)
   if (sameDay) {
-    if (offMin < 60) return `Today, in ${Math.max(0, offMin)}m`
-    if (offMin < 24 * 60) return `Today, in ${Math.floor(offMin / 60)}h`
-    return `Today, ${clock}`
+    if (offMin < 60) return t('glasses_kickoff_today_in_minutes', { n: Math.max(0, offMin) })
+    if (offMin < 24 * 60) return t('glasses_kickoff_today_in_hours', { n: Math.floor(offMin / 60) })
+    return t('glasses_kickoff_today_at', { clock })
   }
-  if (nextDay) return `Tomorrow, ${clock}`
+  if (nextDay) return t('glasses_kickoff_tomorrow_at', { clock })
   return `${formatMD(kick, tz)} ${clock}`
 }
 
@@ -64,9 +72,9 @@ export function nextKickoffLabel(matches: Match[]): string {
   const kick = new Date(m.kickoffAt)
   const days = calendarDaysUntilInZone(kick, tz)
   if (days <= 0) return ''
-  if (days === 1) return 'Next Tomorrow'
-  if (days <= 6) return `Next in ${days}d`
-  return `Next ${formatMD(kick, tz)}`
+  if (days === 1) return t('glasses_next_tomorrow')
+  if (days <= 6) return t('glasses_next_in_days', { n: days })
+  return t('glasses_next_on_date', { date: formatMD(kick, tz) })
 }
 
 /* Calendar-day gap between now and `d`, in the user's TZ.
@@ -84,7 +92,7 @@ function calendarDaysUntilInZone(d: Date, tz: string): number {
 }
 function ymdInZone(d: Date, tz: string): string {
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
+    const parts = new Intl.DateTimeFormat(intlLocale(), { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)
     const y = parts.find(p => p.type === 'year')?.value ?? ''
     const m = parts.find(p => p.type === 'month')?.value ?? ''
     const day = parts.find(p => p.type === 'day')?.value ?? ''
@@ -123,13 +131,13 @@ export function liveMinute(m: Match): number | null {
 }
 function formatClock(d: Date, tz: string): string {
   try {
-    const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true }).format(d)
+    const s = new Intl.DateTimeFormat(intlLocale(), { timeZone: tz, hour: 'numeric', hour12: true }).format(d)
     return s.replace(/\s+/g, '').toUpperCase()
   } catch { return '' }
 }
 function formatMD(d: Date, tz: string): string {
   try {
-    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(d)
+    const parts = new Intl.DateTimeFormat(intlLocale(), { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(d)
     const m = parts.find(p => p.type === 'month')?.value ?? ''
     const day = parts.find(p => p.type === 'day')?.value ?? ''
     return `${m}/${day}`
@@ -137,32 +145,32 @@ function formatMD(d: Date, tz: string): string {
 }
 
 export function stageLabel(m: Match): string {
-  if (m.stage === 'GS') return 'GROUP STAGE'
-  if (m.stage === 'R16') return 'ROUND OF 16'
-  if (m.stage === 'QF') return 'QUARTERFINAL'
-  if (m.stage === 'SF') return 'SEMIFINAL'
-  if (m.stage === '3rd') return '3RD PLACE'
-  return 'FINAL'
+  if (m.stage === 'GS') return t('glasses_stage_group_stage')
+  if (m.stage === 'R16') return t('glasses_stage_round_of_16')
+  if (m.stage === 'QF') return t('glasses_stage_quarterfinal')
+  if (m.stage === 'SF') return t('glasses_stage_semifinal')
+  if (m.stage === '3rd') return t('glasses_stage_3rd_place')
+  return t('glasses_stage_final')
 }
 
 /* short status (chip-style): "1H 42", "HT", "FT", "in 2h" — used inside the event log header */
 export function statusLabel(m: Match): string {
-  if (m.state === 'ft') return 'FT'
+  if (m.state === 'ft') return t('glasses_status_ft')
   if (m.state === 'scheduled') {
     const off = m.kickoffOffsetMin
-    if (off < 60) return `in ${off}m`
+    if (off < 60) return t('glasses_kickoff_in_minutes', { n: off })
     const h = Math.floor(off / 60)
-    if (h < 24) return `in ${h}h`
+    if (h < 24) return t('glasses_kickoff_in_hours', { n: h })
     const d = Math.round(h / 24)
-    return `in ${d}d`
+    return t('glasses_kickoff_in_days', { n: d })
   }
   const min = liveMinute(m) ?? 0
-  if (min < 45) return `1H  ${min}`
-  if (min === 45 || min === 46) return `HT`
-  if (min < 90) return `2H  ${min}`
-  if (min < 105) return `ET  ${min}`
-  if (min < 120) return `ET2  ${min}`
-  return `PEN`
+  if (min < 45) return t('glasses_status_1h', { min })
+  if (min === 45 || min === 46) return t('glasses_status_ht')
+  if (min < 90) return t('glasses_status_2h', { min })
+  if (min < 105) return t('glasses_status_et', { min })
+  if (min < 120) return t('glasses_status_et2', { min })
+  return t('glasses_status_pen')
 }
 
 /** Did this match go to a penalty shootout? Mirrors how iSports + most
@@ -174,44 +182,44 @@ export function hasShootout(m: Match): boolean {
 /** "PEN 4-2" — empty string when no shootout. */
 export function penaltyText(m: Match): string {
   if (!hasShootout(m)) return ''
-  return `PEN ${m.homePenalty}-${m.awayPenalty}`
+  return t('glasses_penalty_text', { home: m.homePenalty as number, away: m.awayPenalty as number })
 }
 
 /* verbose status for the top strip: "SECOND HALF  35 MIN", "HALF TIME", "FULL TIME", "KICKOFF IN 2H".
  * Penalty shootout is NOT mixed in here — Layer 2 has a dedicated top-right PEN indicator
  * (see pageView.ts) so the header status row stays clean. */
 export function statusVerbose(m: Match): string {
-  if (m.state === 'ft') return 'FULL TIME'
+  if (m.state === 'ft') return t('glasses_status_full_time')
   if (m.state === 'scheduled') {
     const off = m.kickoffOffsetMin
-    if (off < 60) return `KICKOFF IN ${off} MIN`
+    if (off < 60) return t('glasses_status_kickoff_min', { n: off })
     const h = Math.floor(off / 60)
-    if (h < 24) return `KICKOFF IN ${h}H`
-    return `KICKOFF IN ${Math.round(h / 24)} DAYS`
+    if (h < 24) return t('glasses_status_kickoff_hour', { n: h })
+    return t('glasses_status_kickoff_days', { n: Math.round(h / 24) })
   }
   const min = liveMinute(m) ?? 0
-  if (min < 45) return `FIRST HALF  ${min} MIN`
-  if (min === 45 || min === 46) return `HALF TIME`
-  if (min < 90) return `SECOND HALF  ${min} MIN`
-  if (min < 105) return `EXTRA TIME  ${min} MIN`
-  if (min < 120) return `EXTRA TIME 2  ${min} MIN`
-  return `PENALTIES`
+  if (min < 45) return t('glasses_status_first_half', { min })
+  if (min === 45 || min === 46) return t('glasses_status_half_time')
+  if (min < 90) return t('glasses_status_second_half', { min })
+  if (min < 105) return t('glasses_status_extra_time', { min })
+  if (min < 120) return t('glasses_status_extra_time_2', { min })
+  return t('glasses_status_penalties')
 }
 
 export function scoreText(m: Match): string {
   /* "1 : 1" — EvenTimeBigPixel covers digits + colon + space natively.
    * Spaces around colon for breathing room. */
   if (m.state === 'live' || m.state === 'ft') return `${m.homeScore} : ${m.awayScore}`
-  return 'v'  /* VS fallback handled outside via renderVsPng */
+  return t('glasses_score_vs')  /* VS fallback handled outside via renderVsPng */
 }
 
 export function eventChip(e: MatchEvent): string {
-  if (e.type === 'goal') return 'GOAL'
-  if (e.type === 'yellow') return 'YEL'
-  if (e.type === 'red') return 'RED'
-  if (e.type === 'ht') return 'HT'
-  if (e.type === 'ft') return 'FT'
-  if (e.type === 'sub') return 'SUB'
+  if (e.type === 'goal') return t('glasses_event_goal')
+  if (e.type === 'yellow') return t('glasses_event_yellow_card')
+  if (e.type === 'red') return t('glasses_event_red_card')
+  if (e.type === 'ht') return t('glasses_status_ht')
+  if (e.type === 'ft') return t('glasses_status_ft')
+  if (e.type === 'sub') return t('glasses_event_substitution')
   return ''
 }
 
@@ -222,22 +230,27 @@ export function lastEventByScorer(m: Match, side: 'home' | 'away'): string {
   return onSide.map(e => `${asciiName(e.player ?? '')} ${e.minute}`).join('  ')
 }
 
-/* strip accented chars LVGL firmware font drops to fallback rectangles.
- * Preserves \n so callers can sanitize multi-line strings in one pass
- * (we used to strip newlines too, which forced every caller to split,
- * sanitize, then re-join — see pageView.ts for the workaround that
- * predated this fix). */
+/* Sanitize names for the glasses text container.
+ *
+ * v1.4: David confirmed the G2 firmware font renders CJK fine, so we
+ * stopped stripping non-printable-ASCII. We still NFD-decompose and drop
+ * Latin combining marks (Mbappé → Mbappe) because the firmware's Latin
+ * glyph table drops accented codepoints to fallback rectangles — that
+ * fix is still needed even with CJK pass-through. Everything outside the
+ * combining-mark range (CJK, kana, Cyrillic, Arabic, full-width punct,
+ * smart quotes, em dash) now passes through unchanged.
+ *
+ * Preserves \n so callers can sanitize multi-line strings in one pass —
+ * see pageView.ts for the per-line workaround that predated this. */
 function asciiName(s: string): string {
-  return s
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^\x20-\x7E\n]/g, '')
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 export { asciiName }
 
 export function kickoffLabel(m: Match): string {
   const off = m.kickoffOffsetMin
   if (off < 0) return ''
-  if (off < 60) return `in ${off}m`
+  if (off < 60) return t('glasses_kickoff_in_minutes', { n: off })
   /* Hour bucket is timezone-agnostic (same in PT/Beijing/etc.) so the
    * sub-day rung stays as-is. */
   const h = Math.floor(off / 60)
@@ -247,23 +260,23 @@ export function kickoffLabel(m: Match): string {
      * "2h"). Honor the calendar gap when we have it. */
     const tz = settingsStore.get().timezone
     const days = calendarDaysUntilInZoneFor(new Date(m.kickoffAt), tz)
-    if (days === 1) return 'Tomorrow'
-    return `${h}h`
+    if (days === 1) return t('glasses_kickoff_tomorrow')
+    return t('glasses_kickoff_hours_short', { n: h })
   }
-  if (h < 24) return `${h}h`
+  if (h < 24) return t('glasses_kickoff_hours_short', { n: h })
   /* >=24h: prefer TZ-aware calendar gap when we have kickoffAt, so the
    * list and the L1 header (which uses nextKickoffLabel) always agree. */
   if (m.kickoffAt) {
     const tz = settingsStore.get().timezone
     const days = calendarDaysUntilInZoneFor(new Date(m.kickoffAt), tz)
-    if (days === 1) return 'Tomorrow'
-    if (days <= 6) return `In ${days} days`
-    return `${days}d`
+    if (days === 1) return t('glasses_kickoff_tomorrow')
+    if (days <= 6) return t('glasses_kickoff_in_n_days', { n: days })
+    return t('glasses_kickoff_days_short', { n: days })
   }
   const days = Math.round(h / 24)
-  if (days === 1) return 'Tomorrow'
-  if (days <= 2) return 'In 2 days'
-  return `${days}d`
+  if (days === 1) return t('glasses_kickoff_tomorrow')
+  if (days <= 2) return t('glasses_kickoff_in_2_days')
+  return t('glasses_kickoff_days_short', { n: days })
 }
 
 /* Same as the file-private calendarDaysUntilInZone; duplicated as a
@@ -278,30 +291,43 @@ function calendarDaysUntilInZoneFor(d: Date, tz: string): number {
 
 export function upcomingRow(m: Match): string {
   /* "BRA  v  POR                                Today 6:00pm" — but we render via L+R container split, not spaces */
-  const home = m.home ?? 'TBD'
-  const away = m.away ?? 'TBD'
+  const home = m.home ?? t('glasses_team_tbd')
+  const away = m.away ?? t('glasses_team_tbd')
   const right = kickoffLabel(m)
-  return `${home}  v  ${away}     ${right}     ${m.stage}`
+  return t('glasses_upcoming_row', { home, away, right, stage: m.stage })
 }
 
 export function pastRow(m: Match): string {
-  const home = m.home ?? '---'
-  const away = m.away ?? '---'
-  return `${home} ${m.homeScore}-${m.awayScore} ${away}  FT  ${m.stage}`
+  const home = m.home ?? t('glasses_team_dashes')
+  const away = m.away ?? t('glasses_team_dashes')
+  return t('glasses_past_row', { home, hs: m.homeScore ?? '', as: m.awayScore ?? '', away, stage: m.stage })
 }
 
 /* Two-list Layer 1: left = matchup (team codes), right = status (live/score/upcoming). */
 export function listLeft(m: Match): string {
-  const home = m.home ?? 'TBD'
-  const away = m.away ?? 'TBD'
-  return `${home} vs ${away}`
+  const home = m.home ?? t('glasses_team_tbd')
+  const away = m.away ?? t('glasses_team_tbd')
+  return t('glasses_list_left_vs', { home, away })
 }
 
 export function listRight(m: Match): string {
-  if (m.state === 'live') return `LIVE ${liveMinute(m) ?? ''}  ${m.homeScore}-${m.awayScore}`
+  if (m.state === 'live') {
+    return t('glasses_list_right_live', {
+      min: liveMinute(m) ?? '',
+      home: m.homeScore ?? '',
+      away: m.awayScore ?? '',
+    })
+  }
   if (m.state === 'ft') {
-    if (hasShootout(m)) return `FT ${m.homeScore}-${m.awayScore} (${m.homePenalty}-${m.awayPenalty}p)`
-    return `FT  ${m.homeScore}-${m.awayScore}`
+    if (hasShootout(m)) {
+      return t('glasses_list_right_ft_shootout', {
+        home: m.homeScore ?? '',
+        away: m.awayScore ?? '',
+        hpen: m.homePenalty as number,
+        apen: m.awayPenalty as number,
+      })
+    }
+    return t('glasses_list_right_ft', { home: m.homeScore ?? '', away: m.awayScore ?? '' })
   }
   return kickoffLabel(m)
 }

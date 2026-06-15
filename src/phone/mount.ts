@@ -6,6 +6,9 @@ import { renderBracketSvg } from './bracketSvg'
 import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 import { liveMinute } from '../g2/format'
 import { t } from '../i18n'
+import { teamNameFor } from '../i18n/teams'
+import { venueNameFor } from '../i18n/venues'
+import { settingsStore } from '../state/settingsStore'
 
 type View = 'matches' | 'bracket' | 'detail'
 
@@ -75,7 +78,7 @@ function detectGoals() {
   if (goals.length > prevLiveEventCount && prevLiveEventCount !== 0) {
     const g = goals[goals.length - 1]
     const teamCode = g.side === 'home' ? live.home : live.away
-    const team = teamCode ? TEAMS[teamCode]?.name ?? teamCode : '—'
+    const team = teamCode ? teamNameFor(teamCode, settingsStore.get().language) : '—'
     toast(
       t('toast_goal_title', { team }),
       t('toast_goal_body', { player: g.player ?? '', minute: g.minute }),
@@ -148,9 +151,10 @@ export function rerender() { renderPhone() }
 
 function flagImg(code: TeamCode | null | undefined, cls = 'flag'): string {
   if (!code) return `<div class="${cls} placeholder" aria-hidden="true"></div>`
-  const t = TEAMS[code]
-  if (!t) return `<div class="${cls} placeholder" aria-hidden="true"></div>`
-  return `<img class="${cls}" src="${t.flag}" alt="${t.name}" />`
+  const team = TEAMS[code]
+  if (!team) return `<div class="${cls} placeholder" aria-hidden="true"></div>`
+  const alt = teamNameFor(code, settingsStore.get().language) || team.name
+  return `<img class="${cls}" src="${team.flag}" alt="${alt}" />`
 }
 
 function formatOffset(min: number): string {
@@ -231,8 +235,9 @@ function renderDetail(): string {
   if (!m) return renderMatches()
   const home = m.home ?? t('status_tbd')
   const away = m.away ?? t('status_tbd')
-  const homeName = m.home ? TEAMS[m.home]?.name ?? '' : ''
-  const awayName = m.away ? TEAMS[m.away]?.name ?? '' : ''
+  const lang = settingsStore.get().language
+  const homeName = m.home ? teamNameFor(m.home, lang) : ''
+  const awayName = m.away ? teamNameFor(m.away, lang) : ''
   const score = m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} - ${m.awayScore}` : t('status_vs')
   const pen = m.homePenalty != null && m.awayPenalty != null
   /* Always show the PEN row; '--' placeholder until a shootout starts. */
@@ -283,7 +288,7 @@ function renderDetail(): string {
           ${awayName ? `<div class="team-name">${awayName}</div>` : ''}
         </div>
       </div>
-      ${m.venue ? `<div class="venue">${m.venue}</div>` : ''}
+      ${m.venue ? `<div class="venue">${venueNameFor(m.venue, lang)}</div>` : ''}
       <h4>${t('detail_events_heading')}</h4>
       ${events}
     </div>

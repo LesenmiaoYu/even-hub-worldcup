@@ -15,6 +15,7 @@ import {
   kickoffGlassesLabel, isMatchToday, nextKickoffLabel,
 } from './format'
 import { renderScorePng, renderVsPng, renderCodePng } from './pngImage'
+import { t } from '../i18n'
 
 /* ── geometry ─────────────────────────────────────────────────────────────── */
 
@@ -59,12 +60,12 @@ const NAME = {
 /* ── helpers ──────────────────────────────────────────────────────────────── */
 
 function stageLabel(m: Match): string {
-  if (m.stage === 'GS') return 'GROUP STAGE'
-  if (m.stage === 'R16') return 'ROUND OF 16'
-  if (m.stage === 'QF') return 'QUARTERFINAL'
-  if (m.stage === 'SF') return 'SEMIFINAL'
-  if (m.stage === '3rd') return '3RD PLACE'
-  return 'FINAL'
+  if (m.stage === 'GS') return t('glasses_stage_group_stage')
+  if (m.stage === 'R16') return t('glasses_stage_round_of_16')
+  if (m.stage === 'QF') return t('glasses_stage_quarterfinal')
+  if (m.stage === 'SF') return t('glasses_stage_semifinal')
+  if (m.stage === '3rd') return t('glasses_stage_3rd_place')
+  return t('glasses_stage_final')
 }
 
 function headerText(m: Match): string {
@@ -80,10 +81,10 @@ function headerText(m: Match): string {
 function eventLogLines(m: Match): string[] {
   if (m.state === 'scheduled') {
     /* kickoffGlassesLabel returns one of: 'Today, in 2h' / 'Today, in 45m'
-     * / 'Tomorrow, 3PM' / '7/15 3PM'. ASCII-only, safe for the LVGL
-     * firmware font in this text container. No empty-line padding —
-     * trailing '\n's were rendering as visible blank rows. */
-    return [asciiName(`Kicks off ${kickoffGlassesLabel(m)}`)]
+     * / 'Tomorrow, 3PM' / '7/15 3PM' (or localized equivalent). Sanitize
+     * through asciiName() so Latin diacritics still strip — CJK passes
+     * through unchanged as of v1.4. */
+    return [asciiName(t('glasses_event_log_kicks_off', { when: kickoffGlassesLabel(m) }))]
   }
   /* Most-recent first, cap at LOG_ROWS (3). No trailing blank padding —
    * the SDK draws each '\n' as a real line and they read as empty rows. */
@@ -96,14 +97,15 @@ function eventLogLines(m: Match): string[] {
     if (e.type === 'sub' && e.playerIn) {
       const out = e.player ? asciiName(e.player) : ''
       const inn = asciiName(e.playerIn)
-      who = `${out} > ${inn}${side ? ` (${side})` : ''}`
+      const sideSuffix = side ? t('glasses_event_log_side_suffix', { side }) : ''
+      who = t('glasses_event_log_sub_arrow', { out, in: inn, sideSuffix })
     } else {
       const player = e.player ? asciiName(e.player) : ''
-      who = side && player ? `${player} (${side})` : player
+      who = side && player ? t('glasses_event_log_with_side', { player, side }) : player
     }
-    return asciiName(`${min}'  ${chip}  ${who}`.trim())
+    return asciiName(t('glasses_event_log_row', { min, chip, who }).trim())
   })
-  if (lines.length === 0) lines.push(asciiName('Match underway'))
+  if (lines.length === 0) lines.push(asciiName(t('glasses_event_log_match_underway')))
   return lines
 }
 
@@ -162,13 +164,13 @@ function penIndicatorContainer(m: Match): TextContainerProperty {
   /* Always rendered now — empty-state shows 'PEN --' so the slot is
    * permanently visible and snaps to the real score when the shootout
    * starts. Spec: penalty section always showing on app + glasses. */
-  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : '--'
+  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : t('glasses_pen_empty')
   return new TextContainerProperty({
     xPosition: PEN_X, yPosition: PEN_Y, width: PEN_W, height: PEN_H,
     borderWidth: 0, borderColor: 0, borderRadius: 0, paddingLength: 0,
     containerID: ID.PEN, containerName: NAME.PEN,
     isEventCapture: 0,
-    content: asciiName(`PEN\n${score}`),
+    content: asciiName(t('glasses_pen_indicator', { score })),
   })
 }
 
@@ -214,8 +216,8 @@ export interface DetailPageRender {
 export async function buildDetailPage(matchId: string | null, kind: 'create' | 'rebuild'): Promise<DetailPageRender> {
   const m = getMatchById(matchId) ?? pickFocusMatch()
   const safe = m ?? makeBlankMatch()
-  const home = m?.home ?? 'TBD'
-  const away = m?.away ?? 'TBD'
+  const home = m?.home ?? t('glasses_team_tbd')
+  const away = m?.away ?? t('glasses_team_tbd')
   const liveOrFt = m && (m.state === 'live' || m.state === 'ft')
 
   const [scoreData, homeCodeData, awayCodeData] = await Promise.all([
@@ -303,11 +305,11 @@ export async function renderCodeImage(slot: 'home' | 'away', code: string): Prom
 export function makePenIndicatorUpgrade(matchId: string | null): { containerID: number; containerName: string; contentOffset: number; contentLength: number; content: string } | null {
   const m = getMatchById(matchId)
   if (!m) return null
-  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : '--'
+  const score = hasShootout(m) ? `${m.homePenalty}-${m.awayPenalty}` : t('glasses_pen_empty')
   return {
     containerID: ID.PEN, containerName: NAME.PEN,
     contentOffset: 0, contentLength: 0,
-    content: asciiName(`PEN\n${score}`),
+    content: asciiName(t('glasses_pen_indicator', { score })),
   }
 }
 
@@ -339,7 +341,7 @@ function listHeaderText(): string {
   const all = store.getAll()
   /* Empty store (cold boot before SSE snapshot lands, or iSports
    * outage) → neutral fallback so we don't lie about the stage. */
-  if (all.length === 0) return asciiName('WORLD CUP    Awaiting data')
+  if (all.length === 0) return asciiName(t('glasses_header_world_cup_awaiting'))
   /* Walk WC progression order. The first stage that has matches AND
    * isn't fully FT wins the focus. (If every stage we touch is FT, the
    * loop keeps advancing — that's how "Final" becomes the focus only
@@ -352,12 +354,14 @@ function listHeaderText(): string {
     focus = s
     if (!inStage.every(m => m.state === 'ft')) break
   }
-  const title = focus === 'GS'  ? 'GROUP STAGE'
-              : focus === 'R16' ? 'ROUND OF 16'
-              : focus === 'QF'  ? 'QUARTERFINALS'
-              : focus === 'SF'  ? 'SEMIFINALS'
-              : focus === '3rd' ? '3RD PLACE'
-              : 'FINAL'
+  /* Layer 1 title uses the PLURAL variants for QF/SF (QUARTERFINALS /
+   * SEMIFINALS) — distinct from the singular Layer 2 detail header. */
+  const title = focus === 'GS'  ? t('glasses_stage_group_stage')
+              : focus === 'R16' ? t('glasses_stage_round_of_16')
+              : focus === 'QF'  ? t('glasses_stage_quarterfinals')
+              : focus === 'SF'  ? t('glasses_stage_semifinals')
+              : focus === '3rd' ? t('glasses_stage_3rd_place')
+              : t('glasses_stage_final')
   /* Sub line must be honest about TODAY. "Today" = same calendar date
    * in user TZ. If no matches today, fall back to a "Next: <when>" hint
    * so the line still tells the user something useful. */
@@ -366,13 +370,13 @@ function listHeaderText(): string {
   let sub: string
   if (todayMatches.length === 0) {
     const next = nextKickoffLabel(all)
-    sub = next || 'No matches'
+    sub = next || t('glasses_header_no_matches')
   } else if (liveCount > 0) {
-    sub = `${todayMatches.length} today, ${liveCount} live`
+    sub = t('glasses_header_today_live', { n: todayMatches.length, live: liveCount })
   } else {
-    sub = `${todayMatches.length} today`
+    sub = t('glasses_header_today_count', { n: todayMatches.length })
   }
-  return asciiName(`${title}    ${sub}`)
+  return asciiName(t('glasses_header_title_sub', { title, sub }))
 }
 
 export function buildListPage(kind: 'create' | 'rebuild'): ListPageRender {
@@ -380,7 +384,7 @@ export function buildListPage(kind: 'create' | 'rebuild'): ListPageRender {
    * right = status (display). Left list owns listItemEvent. */
   const items = listMatches()
   const leftNames = items.length === 0
-    ? [asciiName('No matches today')]
+    ? [asciiName(t('glasses_list_no_matches_today'))]
     : items.map(m => asciiName(listLeft(m)))
   const rightNames = items.length === 0
     ? ['']
