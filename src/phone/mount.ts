@@ -5,6 +5,7 @@ import { toast } from './toast'
 import { renderBracketSvg } from './bracketSvg'
 import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 import { liveMinute } from '../g2/format'
+import { t } from '../i18n'
 
 type View = 'matches' | 'bracket' | 'detail'
 
@@ -35,8 +36,8 @@ export function mountPhone() {
           <div class="brand-tag" id="stage-sub">&mdash;</div>
         </div>
         <nav class="tabs" id="tabs">
-          <button data-view="matches" class="active">Matches</button>
-          <button data-view="bracket">Bracket</button>
+          <button data-view="matches" class="active">${t('tab_matches')}</button>
+          <button data-view="bracket">${t('tab_bracket')}</button>
         </nav>
       </header>
       <div id="location-strip"></div>
@@ -75,7 +76,11 @@ function detectGoals() {
     const g = goals[goals.length - 1]
     const teamCode = g.side === 'home' ? live.home : live.away
     const team = teamCode ? TEAMS[teamCode]?.name ?? teamCode : '—'
-    toast(`Goal — ${team}`, `${g.player ?? ''} ${g.minute}'`, { variant: 'goal' })
+    toast(
+      t('toast_goal_title', { team }),
+      t('toast_goal_body', { player: g.player ?? '', minute: g.minute }),
+      { variant: 'goal' },
+    )
   }
   prevLiveEventCount = goals.length
 }
@@ -150,10 +155,10 @@ function flagImg(code: TeamCode | null | undefined, cls = 'flag'): string {
 
 function formatOffset(min: number): string {
   if (min < 0) return ''
-  if (min < 60) return `in ${min}m`
+  if (min < 60) return t('ui_offset_minutes', { min })
   const h = Math.round(min / 60)
-  if (h < 24) return `in ${h}h`
-  return `in ${Math.round(h / 24)}d`
+  if (h < 24) return t('ui_offset_hours', { h })
+  return t('ui_offset_days', { d: Math.round(h / 24) })
 }
 
 function matchRow(m: Match): string {
@@ -175,14 +180,14 @@ function matchRow(m: Match): string {
     /* FT row layout: score on row 1, 'FT · PEN · STAGE' centered on row 2.
      * Stage collapses into the meta line per spec — keeps the result info
      * on a single centered row instead of stacking across three. */
-    const ftMeta = `${pen ? 'FT · PEN' : 'FT'} · ${m.stage}`
+    const ftMeta = `${pen ? t('status_ft_pen') : t('status_ft')} · ${m.stage}`
     center = `
       <span class="score">${m.homeScore}-${m.awayScore}${pen ? ` <span class="row-pen">(${m.homePenalty}-${m.awayPenalty} pen)</span>` : ''}</span>
       <span class="meta">${ftMeta}</span>
     `
   } else {
     center = `
-      <span class="score vs">vs</span>
+      <span class="score vs">${t('status_vs')}</span>
       <span class="meta">${formatOffset(m.kickoffOffsetMin)}</span>
       <span class="stage">${m.stage}</span>
     `
@@ -208,12 +213,12 @@ function renderMatches(): string {
         <span class="section-title">${title}</span>
         <span class="section-count">${count}</span>
       </div>
-      ${list.length === 0 ? '<div class="card"><div class="empty">No matches</div></div>' : list.map(matchRow).join('')}
+      ${list.length === 0 ? `<div class="card"><div class="empty">${t('ui_no_matches')}</div></div>` : list.map(matchRow).join('')}
     </section>
   `
-  return section('Live', live, live.length)
-       + section('Upcoming', up, up.length)
-       + (past.length > 0 ? section('Results', past, past.length) : '')
+  return section(t('section_live'), live, live.length)
+       + section(t('section_upcoming'), up, up.length)
+       + (past.length > 0 ? section(t('section_results'), past, past.length) : '')
 }
 
 function renderBracket(): string {
@@ -224,30 +229,30 @@ function renderDetail(): string {
   if (!detailMatchId) return renderMatches()
   const m = store.get(detailMatchId)
   if (!m) return renderMatches()
-  const home = m.home ?? 'TBD'
-  const away = m.away ?? 'TBD'
+  const home = m.home ?? t('status_tbd')
+  const away = m.away ?? t('status_tbd')
   const homeName = m.home ? TEAMS[m.home]?.name ?? '' : ''
   const awayName = m.away ? TEAMS[m.away]?.name ?? '' : ''
-  const score = m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} - ${m.awayScore}` : 'vs'
+  const score = m.homeScore !== null && m.awayScore !== null ? `${m.homeScore} - ${m.awayScore}` : t('status_vs')
   const pen = m.homePenalty != null && m.awayPenalty != null
   /* Always show the PEN row; '--' placeholder until a shootout starts. */
-  const penLine = `<div class="detail-pen">PEN ${pen ? `${m.homePenalty}-${m.awayPenalty}` : '--'}</div>`
+  const penLine = `<div class="detail-pen">${t('detail_pen_prefix')} ${pen ? `${m.homePenalty}-${m.awayPenalty}` : '--'}</div>`
   const status =
     m.state === 'live' ? `<span class="live-dot"></span>${liveMinute(m) ?? '-'}' &middot; ${m.stage}` :
-    m.state === 'ft' ? `${pen ? 'FT · PEN' : 'FT'} &middot; ${m.stage}` :
+    m.state === 'ft' ? `${pen ? t('status_ft_pen') : t('status_ft')} &middot; ${m.stage}` :
     `${formatOffset(m.kickoffOffsetMin)} &middot; ${m.stage}`
 
   const events = m.events.length === 0
-    ? '<div class="empty">No events yet</div>'
+    ? `<div class="empty">${t('detail_no_events')}</div>`
     : [...m.events].reverse().map(e => {
         const teamCode = e.side === 'home' ? m.home : e.side === 'away' ? m.away : null
         const sideLabel = teamCode ? teamCode : ''
         const typeLabel =
-          e.type === 'goal'   ? 'Goal'   :
-          e.type === 'yellow' ? 'Yellow' :
-          e.type === 'red'    ? 'Red'    :
-          e.type === 'ht'     ? 'HT'     :
-          e.type === 'sub'    ? 'Sub'    : 'FT'
+          e.type === 'goal'   ? t('event_goal')   :
+          e.type === 'yellow' ? t('event_yellow') :
+          e.type === 'red'    ? t('event_red')    :
+          e.type === 'ht'     ? t('event_ht')     :
+          e.type === 'sub'    ? t('event_sub')    : t('event_ft')
         const whoMarkup = e.type === 'sub' && e.playerIn
           ? `${e.player ?? ''} <span class="ev-arrow">&rarr;</span> ${e.playerIn}`
           : (e.player ?? '')
@@ -261,7 +266,7 @@ function renderDetail(): string {
       }).join('')
 
   return `
-    <button class="back" data-back="1">&larr; Back</button>
+    <button class="back" data-back="1">&larr; ${t('detail_back')}</button>
     <div class="detail-card">
       <div class="detail-head">
         <div class="side big">
@@ -279,7 +284,7 @@ function renderDetail(): string {
         </div>
       </div>
       ${m.venue ? `<div class="venue">${m.venue}</div>` : ''}
-      <h4>Events</h4>
+      <h4>${t('detail_events_heading')}</h4>
       ${events}
     </div>
   `
@@ -288,23 +293,25 @@ function renderDetail(): string {
 /* Header: stage-as-hero. Title = earliest non-FT stage in bracket order
  * (Quarterfinals → Semifinals → 3rd-Place Playoff → Final); falls back to
  * the last stage if everything is FT. Sub-line is live-state aware. */
-const STAGE_NAMES: Record<Stage, string> = {
-  QF: 'Quarterfinals',
-  SF: 'Semifinals',
-  '3rd': '3rd-Place Playoff',
-  F: 'Final',
-  /* GS / R16 added with the iSports adapter — see types.ts. The order[]
-   * below intentionally still drives the late-knockout focus rotation; we
-   * just need these keys present for the Record<Stage,_> to be exhaustive. */
-  GS: 'Group Stage',
-  R16: 'Round of 16',
+function stageNames(): Record<Stage, string> {
+  return {
+    QF: t('stage_qf'),
+    SF: t('stage_sf'),
+    '3rd': t('stage_third'),
+    F: t('stage_final'),
+    /* GS / R16 added with the iSports adapter — see types.ts. The order[]
+     * below intentionally still drives the late-knockout focus rotation; we
+     * just need these keys present for the Record<Stage,_> to be exhaustive. */
+    GS: t('stage_gs'),
+    R16: t('stage_r16'),
+  }
 }
 
 function stageInfo(): { title: string; sub: string } {
   const all = store.getAll()
   /* Empty store (cold boot before SSE snapshot lands, or iSports
    * outage) → neutral fallback so we don't claim we're at the Final. */
-  if (all.length === 0) return { title: 'World Cup', sub: 'Awaiting data' }
+  if (all.length === 0) return { title: t('ui_app_title'), sub: t('ui_awaiting_data') }
   /* Walk WC progression order. First stage that has matches AND isn't
    * fully FT wins the focus. */
   const order: Stage[] = ['GS', 'R16', 'QF', 'SF', '3rd', 'F']
@@ -315,22 +322,22 @@ function stageInfo(): { title: string; sub: string } {
     focus = s
     if (!inStage.every(m => m.state === 'ft')) break
   }
-  const title = STAGE_NAMES[focus]
+  const title = stageNames()[focus]
 
   const live = store.getLive()
   const upcoming = store.getUpcoming()
   let sub: string
   if (live.length === 1) {
     const m = live[0]
-    const h = m.home ?? 'TBD'
-    const a = m.away ?? 'TBD'
-    sub = `${h} vs ${a} live`
+    const home = m.home ?? t('status_tbd')
+    const away = m.away ?? t('status_tbd')
+    sub = t('ui_one_match_live', { home, away })
   } else if (live.length > 1) {
-    sub = `${live.length} matches live`
+    sub = t('ui_many_matches_live', { count: live.length })
   } else if (upcoming.length > 0) {
-    sub = `Next kickoff ${formatOffset(upcoming[0].kickoffOffsetMin)}`
+    sub = t('ui_next_kickoff', { offset: formatOffset(upcoming[0].kickoffOffsetMin) })
   } else {
-    sub = 'Tournament complete'
+    sub = t('ui_tournament_complete')
   }
   return { title, sub }
 }

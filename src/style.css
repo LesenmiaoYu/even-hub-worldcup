@@ -300,6 +300,8 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   background-repeat: no-repeat;
   max-width: 220px;
 }
+.loc-strip .loc-label-lang { margin-left: auto; }
+.loc-strip .loc-select-lang { max-width: 110px; }
 
 /* Match row card */
 .row {

@@ -1,31 +1,32 @@
 import type { Match, Stage } from '../types'
 import { TEAMS } from '../mock/teams'
 import { settingsStore } from '../state/settingsStore'
+import { t } from '../i18n'
 
 function kickoffBadgeText(m: Match): string {
-  if (!m.kickoffAt) return 'SCHEDULED'
+  if (!m.kickoffAt) return t('bracket_kickoff_scheduled')
   const tz = settingsStore.get().timezone
   try {
     const d = new Date(m.kickoffAt)
     const date = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric' }).format(d).toUpperCase()
     const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true }).format(d).replace(/\s+/g, '').toUpperCase()
     return `${date} ${time}`
-  } catch { return 'SCHEDULED' }
+  } catch { return t('bracket_kickoff_scheduled') }
 }
 
 /* When a bracket slot has no team yet, the card shows the kickoff date
  * instead of "TBD". Short M/D format keeps it tight inside the team slot
  * (e.g., "7/19"). Falls back to "TBD" only when kickoffAt isn't seeded. */
 function tbdSlotLabel(m: Match): string {
-  if (!m.kickoffAt) return 'TBD'
+  if (!m.kickoffAt) return t('status_tbd')
   const tz = settingsStore.get().timezone
   try {
     const d = new Date(m.kickoffAt)
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric', day: 'numeric' }).formatToParts(d)
     const mo = parts.find(p => p.type === 'month')?.value ?? ''
     const day = parts.find(p => p.type === 'day')?.value ?? ''
-    return mo && day ? `${mo}/${day}` : 'TBD'
-  } catch { return 'TBD' }
+    return mo && day ? `${mo}/${day}` : t('status_tbd')
+  } catch { return t('status_tbd') }
 }
 
 /* Bracket view — mobile portrait (≤480px column).
@@ -41,16 +42,18 @@ function tbdSlotLabel(m: Match): string {
  * All cards are tappable: data-match-id on the wrapping div, handled in mount.ts.
  */
 
-const STAGE_LABEL: Record<Stage, string> = {
-  QF:  'Quarterfinals',
-  SF:  'Semifinals',
-  '3rd': '3rd-Place Playoff',
-  F:   'Final',
-  /* Added when the iSports adapter landed — the bracket UI still focuses on
-   * the late knockouts but these labels keep the Record<Stage,_> exhaustive
-   * so the type stays sound. */
-  GS:  'Group Stage',
-  R16: 'Round of 16',
+function stageLabel(): Record<Stage, string> {
+  return {
+    QF:  t('stage_qf'),
+    SF:  t('stage_sf'),
+    '3rd': t('stage_third'),
+    F:   t('stage_final'),
+    /* Added when the iSports adapter landed — the bracket UI still focuses on
+     * the late knockouts but these labels keep the Record<Stage,_> exhaustive
+     * so the type stays sound. */
+    GS:  t('stage_gs'),
+    R16: t('stage_r16'),
+  }
 }
 
 function hasShootout(m: Match): boolean {
@@ -71,12 +74,12 @@ function isWinner(m: Match, side: 'home' | 'away'): boolean {
 
 function stageBadge(m: Match): string {
   if (m.state === 'live') {
-    return `<span class="br-live"><span class="br-live-dot"></span>LIVE ${m.minute ?? ''}'</span>`
+    return `<span class="br-live"><span class="br-live-dot"></span>${t('bracket_live_badge', { minute: m.minute ?? '' })}</span>`
   }
   if (m.state === 'ft') {
     return hasShootout(m)
-      ? `<span class="br-meta">FT · PEN</span>`
-      : `<span class="br-meta">FT</span>`
+      ? `<span class="br-meta">${t('status_ft_pen')}</span>`
+      : `<span class="br-meta">${t('status_ft')}</span>`
   }
   /* Scheduled / TBD-opponent → show real kickoff date+time when available
    * (fix #4 seed adds kickoffAt to every match). Falls back to 'SCHEDULED'
@@ -93,11 +96,11 @@ function bracketCard(m: Match): string {
   const home = m.home ?? tbdLabel
   const away = m.away ?? tbdLabel
   const showScores = m.state === 'ft' || m.state === 'live'
-  const baseScore = showScores ? `${m.homeScore}-${m.awayScore}` : 'vs'
+  const baseScore = showScores ? `${m.homeScore}-${m.awayScore}` : t('status_vs')
   /* For penalty shootouts, append "(H-A pen)" so the winning side is
    * still legible at a glance even when regulation tied. */
   const score = hasShootout(m) && m.state === 'ft'
-    ? `${baseScore} <span class="br-pen">(${m.homePenalty}-${m.awayPenalty} pen)</span>`
+    ? `${baseScore} <span class="br-pen">${t('bracket_pen_suffix', { home: m.homePenalty!, away: m.awayPenalty! })}</span>`
     : baseScore
   const hWin  = isWinner(m, 'home')
   const aWin  = isWinner(m, 'away')
@@ -153,7 +156,7 @@ function miniTree(qfs: Match[], sfs: Match[], fin: Match | null): string {
       return `
         <g class="mt-cell mt-tbd">
           <rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" rx="2"/>
-          <text x="${x + cellW/2}" y="${y + cellH/2 + 3}" text-anchor="middle">TBD</text>
+          <text x="${x + cellW/2}" y="${y + cellH/2 + 3}" text-anchor="middle">${t('status_tbd')}</text>
         </g>
       `
     }
@@ -206,9 +209,9 @@ function miniTree(qfs: Match[], sfs: Match[], fin: Match | null): string {
   }
 
   const labels = `
-    <text x="${colX.qf + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">QF</text>
-    <text x="${colX.sf + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">SF</text>
-    <text x="${colX.f  + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">F</text>
+    <text x="${colX.qf + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">${t('bracket_col_qf')}</text>
+    <text x="${colX.sf + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">${t('bracket_col_sf')}</text>
+    <text x="${colX.f  + cellW/2}" y="8" class="mt-col-label" text-anchor="middle">${t('bracket_col_f')}</text>
   `
 
   return `
@@ -259,8 +262,8 @@ export function renderBracketSvg(matches: Match[]): string {
     ? `<div class="br-mini-wrap">${miniTree(qfs, sfs, fin)}</div>`
     : (matches.length > 0
         ? `<div class="bracket-empty">
-             <div class="be-title">No bracket yet</div>
-             <div class="be-sub">The bracket will appear here once the Quarterfinals are scheduled.</div>
+             <div class="be-title">${t('bracket_empty_title')}</div>
+             <div class="be-sub">${t('bracket_empty_sub')}</div>
            </div>`
         : '')
 
@@ -268,15 +271,16 @@ export function renderBracketSvg(matches: Match[]): string {
    * at top still shows only the 4-QF→2-SF→F core; GS + R16 are sectioned
    * card lists below, reusing the same bracketCard component as the
    * later rounds so the visual style stays consistent. */
+  const labels = stageLabel()
   return `
     <div class="bracket-page">
       ${treeSlot}
-      ${sectionList(STAGE_LABEL.GS, gs)}
-      ${sectionList(STAGE_LABEL.R16, r16)}
-      ${sectionList(STAGE_LABEL.QF, qfs)}
-      ${sectionList(STAGE_LABEL.SF, sfs)}
-      ${fin ? sectionList(STAGE_LABEL.F, [fin]) : ''}
-      ${third ? sectionList(STAGE_LABEL['3rd'], [third]) : ''}
+      ${sectionList(labels.GS, gs)}
+      ${sectionList(labels.R16, r16)}
+      ${sectionList(labels.QF, qfs)}
+      ${sectionList(labels.SF, sfs)}
+      ${fin ? sectionList(labels.F, [fin]) : ''}
+      ${third ? sectionList(labels['3rd'], [third]) : ''}
     </div>
   `
 }

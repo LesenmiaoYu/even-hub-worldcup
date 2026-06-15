@@ -1,5 +1,6 @@
 import { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { REGION_BY_IANA, ianaForCountry, DEFAULT_IANA } from './regions'
+import { localeForCountry, type Locale } from '../i18n'
 
 export interface UserSettings {
   /** IANA timezone, e.g. 'America/Los_Angeles'. */
@@ -7,6 +8,9 @@ export interface UserSettings {
   /** ISO country (alpha-2) from bridge.getUserInfo. Drives default tz when
    * the user hasn't picked one. Kept for display too. */
   country: string
+  /** UI language for the phone surface. Glasses always render EN
+   * (LVGL font limitation). */
+  language: Locale
 }
 
 type Listener = (s: UserSettings) => void
@@ -42,7 +46,7 @@ async function bridgeSet(key: string, value: string): Promise<void> {
 }
 
 class SettingsStore {
-  private state: UserSettings = { timezone: systemTimezone(), country: '' }
+  private state: UserSettings = { timezone: systemTimezone(), country: '', language: 'en' }
   private listeners = new Set<Listener>()
   private initialized = false
 
@@ -85,6 +89,11 @@ class SettingsStore {
         ...this.state,
         timezone: fromCountry ?? fromBrowser ?? DEFAULT_IANA,
       }
+    }
+
+    if (!saved?.language) {
+      const fromCountry = localeForCountry(this.state.country)
+      this.state = { ...this.state, language: fromCountry }
     }
 
     void this.save()

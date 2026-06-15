@@ -1,5 +1,6 @@
 import { settingsStore } from '../state/settingsStore'
 import { REGIONS, REGION_BY_IANA, DEFAULT_IANA } from '../state/regions'
+import { LOCALES, LOCALE_LABEL, t, type Locale } from '../i18n'
 
 export async function initSettings(): Promise<void> {
   await settingsStore.init()
@@ -50,24 +51,36 @@ function groupedRegions(): Array<[string, typeof REGIONS]> {
 export function renderLocationStrip(): string {
   const s = settingsStore.get()
   const groups = groupedRegions()
-  const opts = groups.map(([group, items]) => {
+  const tzOpts = groups.map(([group, items]) => {
     const inner = items.map(r =>
       `<option value="${r.iana}"${r.iana === s.timezone ? ' selected' : ''}>${r.label}</option>`,
     ).join('')
     return `<optgroup label="${group}">${inner}</optgroup>`
   }).join('')
+  const langOpts = LOCALES.map(l =>
+    `<option value="${l}"${l === s.language ? ' selected' : ''}>${LOCALE_LABEL[l]}</option>`,
+  ).join('')
+  const tzLabel = t('settings_timezone')
+  const langLabel = t('settings_language')
   return `
     <div class="loc-strip">
-      <span class="loc-label">Timezone</span>
-      <select class="loc-select" data-setting="timezone" aria-label="Timezone">${opts}</select>
+      <span class="loc-label">${tzLabel}</span>
+      <select class="loc-select" data-setting="timezone" aria-label="${tzLabel}">${tzOpts}</select>
+      <span class="loc-label loc-label-lang">${langLabel}</span>
+      <select class="loc-select loc-select-lang" data-setting="language" aria-label="${langLabel}">${langOpts}</select>
     </div>
   `
 }
 
 export function mountLocationStrip(root: HTMLElement): void {
-  const sel = root.querySelector<HTMLSelectElement>('select[data-setting="timezone"]')
-  sel?.addEventListener('change', () => {
-    settingsStore.set({ timezone: sel.value })
+  const tzSel = root.querySelector<HTMLSelectElement>('select[data-setting="timezone"]')
+  tzSel?.addEventListener('change', () => {
+    settingsStore.set({ timezone: tzSel.value })
+    import('./mount').then(m => m.rerender())
+  })
+  const langSel = root.querySelector<HTMLSelectElement>('select[data-setting="language"]')
+  langSel?.addEventListener('change', () => {
+    settingsStore.set({ language: langSel.value as Locale })
     import('./mount').then(m => m.rerender())
   })
 }
