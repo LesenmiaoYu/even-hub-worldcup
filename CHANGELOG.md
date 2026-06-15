@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.1 — 2026-06-15
+**8 follow-up fixes from the test-coverage audit.**
+- **Bracket renders TBD slots in early tournament.** `transformMatch` no longer drops knockout matches with unresolved team slots — only Group Stage drops on null teams (where null is a real data bug). R16/QF/SF/F/3rd pass through with null home/away, and the bracket UI renders them as TBD until the prior round finishes. Fixture mode now shows the full bracket structure (88 matches vs. the prior 72).
+- **Bracket no longer invents winners on bad data.** `winnerOf` now returns null when regulation is tied with no penalty data, and when the penalty shootout score itself is tied (an impossible-data anomaly). Bracket slots stay TBD instead of being filled with the home team by silent default.
+- **Score corrections honoured.** `applyEvent` now accepts negative or zero `scoreDelta` values — the old truthy check silently dropped them.
+- **Client store consistency.** `applyDelta` for `minute` and `bracket-resolved` deltas now always fires `notify()`, even when the matchId is unknown. Matches the behaviour of `event-applied` and `reset`.
+- **Server: `main()` exported.** Test code can now import `server/index.ts` without spawning the HTTP listener — the auto-boot is gated on `import.meta.url === pathToFileURL(process.argv[1]).href`.
+- **Cleanup.** Removed dead `kickOff?: number` field from `ISportsExtraExplain` (never read). Aligned `test/server-store.test.ts` `seedMatch` to the canonical `Match` shape.
+- Suite expanded 476 → 480 with regression coverage for each fix.
+
 ## 2.1.0 — 2026-06-15
 **Settings hamburger + open-source.**
 - Language picker no longer overflows the WebView. New hamburger button next to Matches / Bracket opens a settings panel with stacked Timezone + Language rows (full-width selects, no horizontal scrolling on narrow viewports).

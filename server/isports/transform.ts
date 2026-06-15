@@ -21,7 +21,6 @@ import {
  * ──────────────────────────────────────────────────────────────────────── */
 
 export interface ISportsExtraExplain {
-  kickOff?: number
   minute?: number
   homeScore?: number
   awayScore?: number
@@ -224,10 +223,16 @@ export function transformMatch(
 
   const home = resolveTeam(raw.homeId, raw.homeName)
   const away = resolveTeam(raw.awayId, raw.awayName)
-  if (!home || !away) return null
 
   const stage = decodeStage(raw.round ?? '', raw.group ?? '')
   if (!stage) return null
+
+  /* Group-stage matches always have both teams set in the source feed —
+   * a null team there is a real data-quality problem, drop the row. For
+   * knockout stages (R16/QF/SF/F/3rd) the slots resolve as prior rounds
+   * finish, so null teams are normal and the bracket renders them as
+   * TBD via the `resolvesFrom` chain. */
+  if (stage === 'GS' && (!home || !away)) return null
 
   const ex = raw.extraExplain ?? {}
 

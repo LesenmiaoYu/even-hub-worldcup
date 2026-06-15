@@ -5,9 +5,7 @@ import type { Match, MatchEvent } from '../server/types'
 function seedMatch(overrides: Partial<Match> = {}): Match {
   return {
     id: 'm1',
-    leagueId: '1572',
     stage: 'GS',
-    group: 'A',
     home: 'USA',
     away: 'MEX',
     homeScore: 0,
@@ -16,10 +14,10 @@ function seedMatch(overrides: Partial<Match> = {}): Match {
     awayPenalty: null,
     minute: null,
     state: 'live',
+    kickoffOffsetMin: 0,
     kickoffAt: '2026-06-15T18:00:00Z',
     venue: 'Test Stadium',
     events: [],
-    resolvesFrom: null,
     ...overrides,
   }
 }

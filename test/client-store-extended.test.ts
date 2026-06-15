@@ -232,21 +232,20 @@ describe('Store.applyDelta — notify is called exactly once per delta', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 
-  it('minute on unknown id: still fires notify (current behavior — switch returns early but post-switch notify still runs)', () => {
+  it('minute on unknown id: still notifies (consistent with event-applied/reset which also notify when spliceMatch is a no-op-shaped pass)', () => {
     const spy = vi.fn()
     store.subscribe(spy)
     store.applyDelta({ type: 'minute', matchId: 'ghost', minute: 33 })
-    /* Note: store.applyDelta's `case 'minute'` uses `return` which exits
-     * the entire method, NOT just the switch. So notify is SKIPPED on
-     * unknown-id minute deltas. Same for unknown-id bracket-resolved. */
-    expect(spy).toHaveBeenCalledTimes(0)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(store.get('ghost')).toBeUndefined()
   })
 
-  it('bracket-resolved on unknown id: notify skipped (same early-return)', () => {
+  it('bracket-resolved on unknown id: still notifies, does not invent a match', () => {
     const spy = vi.fn()
     store.subscribe(spy)
     store.applyDelta({ type: 'bracket-resolved', matchId: 'ghost', home: 'USA', away: 'MEX' })
-    expect(spy).toHaveBeenCalledTimes(0)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(store.get('ghost')).toBeUndefined()
   })
 })
 

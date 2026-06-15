@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import { store } from './state.ts'
 import { createApp, closeApp } from './app.ts'
 import { hydrateFromIsports, startIsportsPollers } from './isports/poller.ts'
@@ -6,7 +7,7 @@ import { hydrateFromFixtures } from './fixtures/index.ts'
 const PORT = Number(process.env.PORT ?? 3001)
 const USE_FIXTURES = process.env.USE_FIXTURES === 'true'
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   let pollers: { stop: () => void } = { stop: () => {} }
 
   if (USE_FIXTURES) {
@@ -59,7 +60,16 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => shutdown('SIGINT'))
 }
 
-main().catch(err => {
-  console.error('[wc-server] boot failed:', err)
-  process.exit(1)
-})
+/* Only auto-boot when this file is the process entrypoint (i.e. `tsx
+ * server/index.ts` or `npm run server`). Importing the module from a
+ * test no longer spawns the listener or pollers. */
+const isEntrypoint =
+  process.argv[1] != null &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+
+if (isEntrypoint) {
+  main().catch(err => {
+    console.error('[wc-server] boot failed:', err)
+    process.exit(1)
+  })
+}

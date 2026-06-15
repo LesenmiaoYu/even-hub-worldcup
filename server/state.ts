@@ -56,8 +56,8 @@ export class MatchStore {
     const m = this.get(matchId)
     if (!m) return
     m.events.push(event)
-    if (scoreDelta?.home && m.homeScore !== null) m.homeScore += scoreDelta.home
-    if (scoreDelta?.away && m.awayScore !== null) m.awayScore += scoreDelta.away
+    if (scoreDelta?.home != null && m.homeScore !== null) m.homeScore += scoreDelta.home
+    if (scoreDelta?.away != null && m.awayScore !== null) m.awayScore += scoreDelta.away
 
     /* FT terminates the match and may cascade into the bracket. */
     if (event.type === 'ft') m.state = 'ft'
@@ -253,9 +253,17 @@ export class MatchStore {
     if (m.homeScore > m.awayScore) return m.home
     if (m.homeScore < m.awayScore) return m.away
     if (m.homePenalty != null && m.awayPenalty != null) {
-      return m.homePenalty >= m.awayPenalty ? m.home : m.away
+      if (m.homePenalty > m.awayPenalty) return m.home
+      if (m.homePenalty < m.awayPenalty) return m.away
+      /* Shootouts cannot tie in real football — they continue until
+       * someone misses. A tied penalty pair means iSports gave us bad
+       * data; refuse to invent a winner rather than silently picking one. */
+      return null
     }
-    return m.home
+    /* Regulation tied with no penalty data — the match is unresolvable
+     * from the data we have. Surface as null so the bracket UI shows an
+     * empty slot instead of forging a winner. */
+    return null
   }
 
   /* ---------- pub/sub ---------- */

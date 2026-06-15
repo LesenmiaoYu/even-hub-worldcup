@@ -83,14 +83,26 @@ describe('hydrateFromFixtures — basic contract', () => {
     }
   })
 
-  it('every match has both home and away resolved (transform drops nulls)', async () => {
-    /* transformMatch returns null when either team fails to resolve, so
-     * the store should never contain a match with a null side. */
+  it('GS matches always have both home and away resolved (null = data bug for GS)', async () => {
+    /* For Group Stage, transformMatch drops rows with null teams — those
+     * indicate a data-quality bug, not a normal placeholder. Knockout
+     * rounds legitimately carry null teams until prior rounds finish. */
     await hydrateFromFixtures(store)
-    for (const m of store.getAll()) {
+    for (const m of store.getAll().filter(m => m.stage === 'GS')) {
       expect(m.home).not.toBeNull()
       expect(m.away).not.toBeNull()
     }
+  })
+
+  it('knockout matches pass through with null teams as TBD placeholders', async () => {
+    /* For R16/QF/SF/F/3rd, null home/away is normal — the slot will
+     * resolve when the prior round finishes. The bracket UI renders
+     * these as TBD. transformMatch must NOT drop them. */
+    await hydrateFromFixtures(store)
+    const ko = store.getAll().filter(m => m.stage !== 'GS')
+    expect(ko.length).toBeGreaterThan(0)
+    /* At least some knockout slots are unresolved on this captured fixture. */
+    expect(ko.some(m => m.home === null || m.away === null)).toBe(true)
   })
 
   it('hydrate is idempotent — calling twice yields the same match count', async () => {
@@ -103,25 +115,27 @@ describe('hydrateFromFixtures — basic contract', () => {
 })
 
 describe('hydrateFromFixtures — stage distribution', () => {
-  /* Pin the actual distribution produced by transformMatch against the
-   * captured fixture. Knockout rows in schedule-wc2026.json carry slot
-   * placeholders (homeName="[A2]" etc.) instead of real team names —
-   * resolveTeam returns null for those, so transformMatch drops every
-   * knockout match. The fixture's 16 "1/16Final" rows are additionally
-   * dropped because that stage has no slot in the Stage union.
+  /* Pin the distribution against the captured WC 2026 fixture.
    *
-   * Net result on this fixture: 72 GS matches, 0 of everything else.
+   * The fixture has 104 raw rows: 72 Group stage + 16 "1/16Final" + 8
+   * "1/8 Final" + 4 Quarterfinals + 2 Semifinal + 1 Third runner + 1
+   * Finals. After transform:
    *
-   * The task brief expected R16/QF/SF/F/3rd to survive ("~16 R16, QF=4,
-   * SF=2, F=1, 3rd=1"); they don't, because the captured fixture has
-   * unresolved knockout slots. This is logged as a latent gap on the
-   * fixture (not a code bug) — the test pins the real behaviour so
-   * downstream UI tests can rely on it. */
+   *   - 1/16Final (16 rows): dropped — no slot in the Stage union (our
+   *     bracket starts at R16 a.k.a. 1/8 Final).
+   *   - 1/8 Final → R16 (8), Quarterfinals → QF (4), Semifinal → SF (2),
+   *     Third runner → 3rd (1), Finals → F (1): all pass through with
+   *     null home/away because the captured fixture has placeholder
+   *     slots ([A2], [W57], etc.) instead of resolved team codes. The
+   *     bracket UI renders these as TBD.
+   *   - Group stage (72): pass through with both teams resolved.
+   *
+   * Net: 72 GS + 16 knockout = 88 matches. */
 
   let store: MatchStore
   beforeEach(() => { store = new MatchStore() })
 
-  it('GS dominates with exactly 72 matches (matches raw row count)', async () => {
+  it('GS rows survive 1:1 with the raw fixture (72 matches)', async () => {
     await hydrateFromFixtures(store)
     const gs = store.getAll().filter(m => m.stage === 'GS')
     const rawGsRows = FIXTURE.data.filter(r => r.round === 'Group stage').length
@@ -131,34 +145,32 @@ describe('hydrateFromFixtures — stage distribution', () => {
 
   it('1/16Final rows are dropped (no slot in Stage union)', async () => {
     await hydrateFromFixtures(store)
-    /* Raw fixture has 16 "1/16Final" rows — none survive into the store. */
     const r32Raw = FIXTURE.data.filter(r => r.round === '1/16Final').length
     expect(r32Raw).toBe(16)
-    /* No surviving match should carry an R32-ish stage. R16 in our union
-     * is "1/8 Final", not "1/16Final". */
+    /* No surviving match carries an R32 stage — R16 in our union maps
+     * to "1/8 Final", not "1/16Final". The 16 R32 rows from iSports
+     * have nowhere to land and are correctly dropped. */
+  })
+
+  it('every knockout round survives with TBD slots', async () => {
+    await hydrateFromFixtures(store)
     const all = store.getAll()
     const r16 = all.filter(m => m.stage === 'R16')
-    /* Knockout matches with placeholder team names also drop, so R16 = 0
-     * for this captured fixture. */
-    expect(r16.length).toBe(0)
+    const qf = all.filter(m => m.stage === 'QF')
+    const sf = all.filter(m => m.stage === 'SF')
+    const f = all.filter(m => m.stage === 'F')
+    const third = all.filter(m => m.stage === '3rd')
+    expect(r16.length).toBe(8)
+    expect(qf.length).toBe(4)
+    expect(sf.length).toBe(2)
+    expect(f.length).toBe(1)
+    expect(third.length).toBe(1)
   })
 
-  it('knockout matches with placeholder team slots are dropped', async () => {
-    await hydrateFromFixtures(store)
-    /* Spot-check: fixture contains a "Finals" row whose homeName/awayName
-     * look like "[W57]" / "[W58]". transformMatch must drop it. */
-    const all = store.getAll()
-    expect(all.find(m => m.stage === 'F')).toBeUndefined()
-    expect(all.find(m => m.stage === 'SF')).toBeUndefined()
-    expect(all.find(m => m.stage === 'QF')).toBeUndefined()
-    expect(all.find(m => m.stage === '3rd')).toBeUndefined()
-  })
-
-  it('total match count equals GS count (only GS survives)', async () => {
+  it('total match count is GS (72) + surviving knockouts (16) = 88', async () => {
     await hydrateFromFixtures(store)
     const all = store.getAll()
-    const gs = all.filter(m => m.stage === 'GS').length
-    expect(all.length).toBe(gs)
+    expect(all.length).toBe(88)
   })
 })
 

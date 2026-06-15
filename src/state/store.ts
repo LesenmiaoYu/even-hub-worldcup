@@ -40,15 +40,15 @@ export class Store {
       }
       case 'minute': {
         const m = this.get(delta.matchId)
-        if (!m) return
-        m.minute = delta.minute
+        if (m) m.minute = delta.minute
         break
       }
       case 'bracket-resolved': {
         const m = this.get(delta.matchId)
-        if (!m) return
-        m.home = delta.home
-        m.away = delta.away
+        if (m) {
+          m.home = delta.home
+          m.away = delta.away
+        }
         break
       }
     }

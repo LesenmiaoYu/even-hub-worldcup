@@ -295,6 +295,21 @@ describe('MatchStore.applyEvent', () => {
     expect(store.get('m1')!.awayScore).toBe(1)
   })
 
+  it('honours a negative scoreDelta (score correction)', () => {
+    /* Regression for the old truthy-check bug: `if (scoreDelta?.home && ...)`
+     * silently dropped negative deltas. Score corrections should land. */
+    const store = new MatchStore()
+    store.replaceAll([seedMatch({ homeScore: 2, awayScore: 0 })])
+
+    store.applyEvent(
+      'm1',
+      { type: 'goal', minute: 30, side: 'home' },
+      { home: -1 },
+    )
+
+    expect(store.get('m1')!.homeScore).toBe(1)
+  })
+
   it('sets state to ft when type is ft', () => {
     const store = new MatchStore()
     store.replaceAll([seedMatch({ state: 'live' })])
@@ -571,6 +586,61 @@ describe('MatchStore.resolveBracket (via applyEvent ft)', () => {
     store.applyEvent('m1', { type: 'ft', minute: 120, side: null })
 
     expect(store.get('next')!.home).toBe('MEX')
+  })
+
+  it('winnerOf returns null on a regulation tie with no penalty data (unresolvable)', () => {
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({
+        id: 'm1',
+        homeScore: 1,
+        awayScore: 1,
+        homePenalty: null,
+        awayPenalty: null,
+        home: 'USA',
+        away: 'MEX',
+      }),
+      seedMatch({
+        id: 'next',
+        home: null,
+        away: null,
+        homeScore: null,
+        awayScore: null,
+        resolvesFrom: { home: 'm1' },
+      }),
+    ])
+
+    store.applyEvent('m1', { type: 'ft', minute: 120, side: null })
+
+    /* Refusing to invent a winner — bracket slot stays null (TBD). */
+    expect(store.get('next')!.home).toBeNull()
+  })
+
+  it('winnerOf returns null on a tied penalty shootout (impossible data, no fake winner)', () => {
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({
+        id: 'm1',
+        homeScore: 1,
+        awayScore: 1,
+        homePenalty: 4,
+        awayPenalty: 4,
+        home: 'USA',
+        away: 'MEX',
+      }),
+      seedMatch({
+        id: 'next',
+        home: null,
+        away: null,
+        homeScore: null,
+        awayScore: null,
+        resolvesFrom: { home: 'm1' },
+      }),
+    ])
+
+    store.applyEvent('m1', { type: 'ft', minute: 120, side: null })
+
+    expect(store.get('next')!.home).toBeNull()
   })
 
   it('emits a bracket-resolved delta with the resolved teams', () => {
