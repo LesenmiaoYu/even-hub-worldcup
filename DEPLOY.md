@@ -1,6 +1,6 @@
 # Deployment Guide
 
-End-to-end runbook for cloning, running, and shipping `even-hub-worldcup`. Targets the Mac Mini + launchd pattern by default; swap launchd for systemd on Linux. Everything is verbatim from the current tree — no aspirational steps.
+End-to-end runbook for cloning, running, and shipping `even-hub-worldcup`. Targets a long-running macOS host with launchd by default; swap launchd for systemd on Linux. Everything is verbatim from the current tree — no aspirational steps.
 
 ---
 
@@ -62,7 +62,7 @@ cp .env.example .env
 |---|---|---|---|
 | `ISPORTS_API_KEY` | yes (server) | — | iSports auth, read on every API call by `server/isports/client.ts`. Throws on missing. |
 | `PORT` | no | `3001` | Port the Node SSE server listens on. Read in `server/index.ts`. |
-| `VITE_SERVER_URL` | yes (prod build only) | unset | Absolute URL of the public Node server, baked into the `.ehpk` bundle at build time. Leave UNSET in dev — the vite proxy in `vite.config.ts` forwards `/events` → `http://localhost:3001`. Example: `https://wc.yulesenmiao.com`. **Lives in `.env.personal` / `.env.company`, not the server `.env`** — see Step 5. |
+| `VITE_SERVER_URL` | yes (prod build only) | unset | Absolute URL of the public Node server, baked into the `.ehpk` bundle at build time. Leave UNSET in dev — the vite proxy in `vite.config.ts` forwards `/events` → `http://localhost:3001`. Example: `https://wc.example.com`. **Lives in `.env.personal` / `.env.company`, not the server `.env`** — see Step 5. |
 
 `.env`, `.env.personal`, `.env.company` are all gitignored. Never commit `ISPORTS_API_KEY` or production URLs that you don't want publicly known.
 
@@ -185,7 +185,7 @@ To keep them in sync we ship a small `scripts/prepack.mjs` helper and run packs 
 
 | Profile | `.env` file | Build script | Pack script | Output |
 |---|---|---|---|---|
-| **Personal** (David's host) | `.env.personal` | `npm run build:personal` | `npm run pack:personal` | `wc-personal.ehpk` |
+| **Personal** (your host)    | `.env.personal` | `npm run build:personal` | `npm run pack:personal` | `wc-personal.ehpk` |
 | **Company** (Even relay) | `.env.company` | `npm run build:company` | `npm run pack:company` | `wc-company.ehpk` |
 
 ### Pack flow

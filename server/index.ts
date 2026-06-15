@@ -1,22 +1,31 @@
 import { store } from './state.ts'
 import { createApp, closeApp } from './app.ts'
 import { hydrateFromIsports, startIsportsPollers } from './isports/poller.ts'
+import { hydrateFromFixtures } from './fixtures/index.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
+const USE_FIXTURES = process.env.USE_FIXTURES === 'true'
 
 async function main(): Promise<void> {
-  console.log('[wc-server] hydrating from iSports /schedule before listen…')
-  try {
-    await hydrateFromIsports(store)
-  } catch (err) {
-    /* Boot must not fail just because iSports is unreachable or
-     * rate-limited. Start with an empty store; the pollers below will
-     * keep retrying and fill the store the moment iSports recovers.
-     * Clients connected during the gap just see an empty snapshot and
-     * pick up later deltas. */
-    console.error('[wc-server] iSports hydrate failed — starting empty, pollers will retry:', err)
+  let pollers: { stop: () => void } = { stop: () => {} }
+
+  if (USE_FIXTURES) {
+    console.log('[wc-server] USE_FIXTURES=true — offline fixture mode (no iSports calls)')
+    await hydrateFromFixtures(store)
+  } else {
+    console.log('[wc-server] hydrating from iSports /schedule before listen…')
+    try {
+      await hydrateFromIsports(store)
+    } catch (err) {
+      /* Boot must not fail just because iSports is unreachable or
+       * rate-limited. Start with an empty store; the pollers below will
+       * keep retrying and fill the store the moment iSports recovers.
+       * Clients connected during the gap just see an empty snapshot and
+       * pick up later deltas. */
+      console.error('[wc-server] iSports hydrate failed — starting empty, pollers will retry:', err)
+    }
+    pollers = startIsportsPollers(store)
   }
-  const pollers = startIsportsPollers(store)
 
   /* Stale-state sweep. iSports drops finished matches from
    * /livescores/changes before flipping state to 'live'/'ft', so the
