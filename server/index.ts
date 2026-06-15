@@ -18,6 +18,20 @@ async function main(): Promise<void> {
   }
   const pollers = startIsportsPollers(store)
 
+  /* Stale-state sweep. iSports drops finished matches from
+   * /livescores/changes before flipping state to 'live'/'ft', so the
+   * server holds matches as 'scheduled' past their kickoff. Every 30s
+   * we promote past-kickoff (>5min) scheduled matches to 'live'. Every
+   * connected client gets the corrected state via SSE reset delta —
+   * regardless of bundle version. */
+  const sweepTimer = setInterval(() => {
+    const n = store.sweepStaleStates()
+    if (n > 0) console.log(`[wc-server] sweep promoted ${n} stale scheduled→live`)
+  }, 30_000)
+  /* Run once immediately so the boot snapshot is already correct for
+   * the first SSE subscriber. */
+  store.sweepStaleStates()
+
   const handle = createApp({ store })
 
   handle.server.listen(PORT, () => {
@@ -28,6 +42,7 @@ async function main(): Promise<void> {
 
   const shutdown = (signal: string) => {
     console.log(`[wc-server] ${signal} received — shutting down`)
+    clearInterval(sweepTimer)
     pollers.stop()
     void closeApp(handle).then(() => process.exit(0))
   }

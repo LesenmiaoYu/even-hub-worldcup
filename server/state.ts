@@ -170,6 +170,38 @@ export class MatchStore {
     }
   }
 
+  /* Promote any state:'scheduled' match whose kickoff is past to
+   * state:'live'. iSports occasionally fails to emit the scheduled→live
+   * transition (especially when /livescores/changes drops the match
+   * before its state flips), leaving the server holding state:'scheduled'
+   * for hours while users see "kicks off in -3h" on the L2 status
+   * line and "in Xh" on the matches list.
+   *
+   * This is a server-side authoritative fix: every connected client
+   * (regardless of bundle version) gets the corrected state via a SSE
+   * reset delta. No client update required.
+   *
+   * 5-minute grace window before promoting — iSports' eventual emission
+   * latency is usually under a minute, so 5 min is comfortable.
+   *
+   * We do NOT auto-promote live→ft. Final score might be unset; risk
+   * of "FT 0-0" lies is real. The 12h /schedule re-hydrate catches the
+   * straggling live→ft transitions naturally. */
+  sweepStaleStates(): number {
+    const now = Date.now()
+    let promoted = 0
+    for (const m of this.matches) {
+      if (m.state !== 'scheduled') continue
+      if (!m.kickoffAt) continue
+      const elapsedMin = (now - new Date(m.kickoffAt).getTime()) / 60_000
+      if (elapsedMin < 5) continue
+      m.state = 'live'
+      this.emit({ type: 'reset', matchId: m.id, match: structuredClone(m) })
+      promoted++
+    }
+    return promoted
+  }
+
   /* ---------- bracket ---------- */
 
   private resolveBracket(finishedMatchId: string): void {

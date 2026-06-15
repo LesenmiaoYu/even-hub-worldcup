@@ -27,7 +27,7 @@ function pickInitialIana(): string {
 /* Group regions for the <optgroup> structure. Stable group order keeps
  * Europe first, then the Americas, then Asia — matches the wiki's order
  * and gives users in those buckets less scrolling. */
-const GROUP_ORDER = ['Europe', 'North America', 'South America', 'Asia']
+const GROUP_ORDER = ['Europe', 'North America', 'South America', 'Asia', 'Oceania']
 
 function groupedRegions(): Array<[string, typeof REGIONS]> {
   const byGroup = new Map<string, typeof REGIONS>()

@@ -3,8 +3,11 @@
  * Rzo3wtKyFigkLkk35BNcBPU9nkA (ASR region routing config — same regions
  * the broader app uses, kept aligned for UX consistency).
  *
- * 126 entries grouped by continent. The Settings picker shows them in an
- * <optgroup>-organized <select>; only these IANA zones are selectable. */
+ * Grouped by continent. The Settings picker shows them in an
+ * <optgroup>-organized <select>; only these IANA zones are selectable.
+ * Multi-zone countries (US, CA, AU, BR, RU, MX) list their primary
+ * commercial/capital zone first so REGION_BY_COUNTRY picks a sensible
+ * default. */
 
 export interface RegionOption {
   label: string
@@ -44,6 +47,8 @@ export const REGIONS: RegionOption[] = [
   { label: "Belarus", iana: "Europe/Minsk", country: "BY", group: "Europe" },
   { label: "Moldova", iana: "Europe/Chisinau", country: "MD", group: "Europe" },
   { label: "Russia (Moscow)", iana: "Europe/Moscow", country: "RU", group: "Europe" },
+  { label: "Russia (Yekaterinburg)", iana: "Asia/Yekaterinburg", country: "RU", group: "Europe" },
+  { label: "Russia (Vladivostok)", iana: "Asia/Vladivostok", country: "RU", group: "Europe" },
   { label: "Austria", iana: "Europe/Vienna", country: "AT", group: "Europe" },
   { label: "Switzerland", iana: "Europe/Zurich", country: "CH", group: "Europe" },
   { label: "Liechtenstein", iana: "Europe/Vaduz", country: "LI", group: "Europe" },
@@ -65,6 +70,11 @@ export const REGIONS: RegionOption[] = [
   { label: "Barbados", iana: "America/Barbados", country: "BB", group: "North America" },
   { label: "Belize", iana: "America/Belize", country: "BZ", group: "North America" },
   { label: "Canada (Toronto)", iana: "America/Toronto", country: "CA", group: "North America" },
+  { label: "Canada (Vancouver)", iana: "America/Vancouver", country: "CA", group: "North America" },
+  { label: "Canada (Edmonton)", iana: "America/Edmonton", country: "CA", group: "North America" },
+  { label: "Canada (Winnipeg)", iana: "America/Winnipeg", country: "CA", group: "North America" },
+  { label: "Canada (Halifax)", iana: "America/Halifax", country: "CA", group: "North America" },
+  { label: "Canada (St. John's)", iana: "America/St_Johns", country: "CA", group: "North America" },
   { label: "Costa Rica", iana: "America/Costa_Rica", country: "CR", group: "North America" },
   { label: "Cuba", iana: "America/Havana", country: "CU", group: "North America" },
   { label: "Dominica", iana: "America/Dominica", country: "DM", group: "North America" },
@@ -76,6 +86,8 @@ export const REGIONS: RegionOption[] = [
   { label: "Honduras", iana: "America/Tegucigalpa", country: "HN", group: "North America" },
   { label: "Jamaica", iana: "America/Jamaica", country: "JM", group: "North America" },
   { label: "Mexico (CDMX)", iana: "America/Mexico_City", country: "MX", group: "North America" },
+  { label: "Mexico (Tijuana)", iana: "America/Tijuana", country: "MX", group: "North America" },
+  { label: "Mexico (Cancun)", iana: "America/Cancun", country: "MX", group: "North America" },
   { label: "Nicaragua", iana: "America/Managua", country: "NI", group: "North America" },
   { label: "Panama", iana: "America/Panama", country: "PA", group: "North America" },
   { label: "St. Kitts & Nevis", iana: "America/St_Kitts", country: "KN", group: "North America" },
@@ -83,9 +95,17 @@ export const REGIONS: RegionOption[] = [
   { label: "St. Vincent", iana: "America/St_Vincent", country: "VC", group: "North America" },
   { label: "Trinidad & Tobago", iana: "America/Port_of_Spain", country: "TT", group: "North America" },
   { label: "United States (NYC)", iana: "America/New_York", country: "US", group: "North America" },
+  { label: "United States (Chicago)", iana: "America/Chicago", country: "US", group: "North America" },
+  { label: "United States (Denver)", iana: "America/Denver", country: "US", group: "North America" },
+  { label: "United States (Phoenix)", iana: "America/Phoenix", country: "US", group: "North America" },
+  { label: "United States (Los Angeles)", iana: "America/Los_Angeles", country: "US", group: "North America" },
+  { label: "United States (Anchorage)", iana: "America/Anchorage", country: "US", group: "North America" },
+  { label: "United States (Honolulu)", iana: "Pacific/Honolulu", country: "US", group: "North America" },
   { label: "Argentina (BA)", iana: "America/Argentina/Buenos_Aires", country: "AR", group: "South America" },
   { label: "Bolivia", iana: "America/La_Paz", country: "BO", group: "South America" },
   { label: "Brazil (Sao Paulo)", iana: "America/Sao_Paulo", country: "BR", group: "South America" },
+  { label: "Brazil (Manaus)", iana: "America/Manaus", country: "BR", group: "South America" },
+  { label: "Brazil (Fortaleza)", iana: "America/Fortaleza", country: "BR", group: "South America" },
   { label: "Chile (Santiago)", iana: "America/Santiago", country: "CL", group: "South America" },
   { label: "Colombia", iana: "America/Bogota", country: "CO", group: "South America" },
   { label: "Ecuador", iana: "America/Guayaquil", country: "EC", group: "South America" },
@@ -140,6 +160,20 @@ export const REGIONS: RegionOption[] = [
   { label: "Uzbekistan", iana: "Asia/Tashkent", country: "UZ", group: "Asia" },
   { label: "Vietnam", iana: "Asia/Ho_Chi_Minh", country: "VN", group: "Asia" },
   { label: "Yemen", iana: "Asia/Aden", country: "YE", group: "Asia" },
+  { label: "Australia (Sydney)", iana: "Australia/Sydney", country: "AU", group: "Oceania" },
+  { label: "Australia (Melbourne)", iana: "Australia/Melbourne", country: "AU", group: "Oceania" },
+  { label: "Australia (Brisbane)", iana: "Australia/Brisbane", country: "AU", group: "Oceania" },
+  { label: "Australia (Adelaide)", iana: "Australia/Adelaide", country: "AU", group: "Oceania" },
+  { label: "Australia (Perth)", iana: "Australia/Perth", country: "AU", group: "Oceania" },
+  { label: "Australia (Darwin)", iana: "Australia/Darwin", country: "AU", group: "Oceania" },
+  { label: "Australia (Hobart)", iana: "Australia/Hobart", country: "AU", group: "Oceania" },
+  { label: "New Zealand (Auckland)", iana: "Pacific/Auckland", country: "NZ", group: "Oceania" },
+  { label: "New Zealand (Chatham)", iana: "Pacific/Chatham", country: "NZ", group: "Oceania" },
+  { label: "Fiji", iana: "Pacific/Fiji", country: "FJ", group: "Oceania" },
+  { label: "Papua New Guinea", iana: "Pacific/Port_Moresby", country: "PG", group: "Oceania" },
+  { label: "Samoa", iana: "Pacific/Apia", country: "WS", group: "Oceania" },
+  { label: "Tahiti", iana: "Pacific/Tahiti", country: "PF", group: "Oceania" },
+  { label: "Guam", iana: "Pacific/Guam", country: "GU", group: "Oceania" },
 ]
 
 export const DEFAULT_IANA = "America/New_York"
