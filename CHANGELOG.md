@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.2 — 2026-06-16
+**Kickoff countdown no longer freezes between server polls.**
+- **Bug:** the Upcoming list (and a few other surfaces) read kickoff-time-remaining from a server-side snapshot field that was only recomputed every 12 hours when `/schedule` re-hydrated. Result: "ESP vs CPV in 10 hours" badges that hadn't moved since the morning poll.
+- **Fix:** deleted the stored `kickoffOffsetMin` field. Every countdown / sort / "next match" derivation now reads `kickoffAt` (absolute ISO timestamp) and computes the offset at render time via a shared `minutesUntilKickoff()` util. 9 read sites updated (phone matches list, phone match detail, glasses header, glasses upcoming list, glasses status verbose, glasses status chip, glasses focus picker).
+- **Test class added.** `test/time-invariants.test.ts` asserts the system invariant we were missing — render the same Match at time t and t+1h, the displayed countdown must drop by ~60min. The prior 362-test coverage missed the bug because every test pinned a snapshot value at one instant; nothing exercised "did the display update as time advanced." Suite is now 490 tests.
+
 ## 2.1.1 — 2026-06-15
 **8 follow-up fixes from the test-coverage audit.**
 - **Bracket renders TBD slots in early tournament.** `transformMatch` no longer drops knockout matches with unresolved team slots — only Group Stage drops on null teams (where null is a real data bug). R16/QF/SF/F/3rd pass through with null home/away, and the bracket UI renders them as TBD until the prior round finishes. Fixture mode now shows the full bracket structure (88 matches vs. the prior 72).

@@ -46,7 +46,6 @@ function mkMatch(overrides: Partial<Match> = {}): Match {
     awayPenalty: overrides.awayPenalty ?? null,
     minute: overrides.minute ?? null,
     state: overrides.state ?? 'scheduled',
-    kickoffOffsetMin: overrides.kickoffOffsetMin ?? 60,
     events: overrides.events ?? [],
     ...overrides,
   }

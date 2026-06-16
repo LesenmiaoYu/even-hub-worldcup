@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import {
   statusVerbose,
   listLeft,
@@ -11,6 +11,19 @@ import {
   stageLabel,
 } from '../src/g2/format'
 import type { Match, MatchEvent } from '../src/types'
+
+/* Pin Date.now() at module load so "minutes from now" tests are
+ * deterministic. Every test that wants "kickoff is N minutes away" passes
+ * kickoffAt: kickoffIn(N). minutesUntilKickoff() in src/state/timeUntil.ts
+ * reads Date.now() at call time — the fake timer pin is what makes that
+ * deterministic without each test having to setSystemTime itself. */
+const FIXED_NOW = new Date('2026-06-15T12:00:00.000Z').getTime()
+beforeAll(() => { vi.useFakeTimers(); vi.setSystemTime(FIXED_NOW) })
+afterAll(() => { vi.useRealTimers() })
+
+function kickoffIn(min: number): string {
+  return new Date(FIXED_NOW + min * 60000).toISOString()
+}
 
 /* Builders that return a fresh Match so a mutation in one test cannot
  * bleed into another. The fields we don't care about per-test default to
@@ -27,7 +40,6 @@ function makeMatch(overrides: Partial<Match> = {}): Match {
     awayPenalty: null,
     minute: null,
     state: 'scheduled',
-    kickoffOffsetMin: 0,
     events: [],
     ...overrides,
   }
@@ -85,17 +97,17 @@ describe('statusVerbose', () => {
     ).toBe('FULL TIME')
   })
   it('shows KICKOFF IN <min> MIN when scheduled and offset < 60', () => {
-    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffOffsetMin: 30 }))).toBe(
+    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(30) }))).toBe(
       'KICKOFF IN 30 MIN',
     )
   })
   it('shows KICKOFF IN <h>H when scheduled and offset < a day', () => {
-    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffOffsetMin: 60 * 5 }))).toBe(
+    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(60 * 5) }))).toBe(
       'KICKOFF IN 5H',
     )
   })
   it('shows KICKOFF IN <d> DAYS when scheduled and offset >= a day', () => {
-    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffOffsetMin: 60 * 49 }))).toBe(
+    expect(statusVerbose(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(60 * 49) }))).toBe(
       'KICKOFF IN 2 DAYS',
     )
   })
@@ -136,11 +148,11 @@ describe('listRight', () => {
     ).toBe('FT 2-2 (4-3p)')
   })
   it('falls back to kickoffLabel when scheduled', () => {
-    expect(listRight(makeMatch({ state: 'scheduled', kickoffOffsetMin: 30 }))).toBe('in 30m')
+    expect(listRight(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(30) }))).toBe('in 30m')
     /* 25h rounds to 1 day → "Tomorrow" by kickoffLabel's bucketing. */
-    expect(listRight(makeMatch({ state: 'scheduled', kickoffOffsetMin: 60 * 25 }))).toBe('Tomorrow')
+    expect(listRight(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(60 * 25) }))).toBe('Tomorrow')
     /* 3h doesn't round into days yet, so we see the hour bucket. */
-    expect(listRight(makeMatch({ state: 'scheduled', kickoffOffsetMin: 60 * 3 }))).toBe('3h')
+    expect(listRight(makeMatch({ state: 'scheduled', kickoffAt: kickoffIn(60 * 3) }))).toBe('3h')
   })
 })
 

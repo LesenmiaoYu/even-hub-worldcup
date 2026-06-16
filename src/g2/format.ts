@@ -1,5 +1,6 @@
 import type { Match, MatchEvent } from '../types'
 import { settingsStore } from '../state/settingsStore'
+import { minutesUntilKickoff } from '../state/timeUntil'
 import { t } from '../i18n'
 
 /* BCP-47 tag for Intl.DateTimeFormat. Mirrors settingsStore.language. */
@@ -18,12 +19,8 @@ function intlLocale(): string {
  * Strings are routed through t() so non-EN locales get translated.
  * Date/time pieces (clock + MD) localize via intlLocale(). */
 export function kickoffGlassesLabel(m: Match): string {
-  const offMin = m.kickoffOffsetMin
-  if (!m.kickoffAt) {
-    if (offMin < 60) return t('glasses_kickoff_in_minutes', { n: offMin })
-    if (offMin < 24 * 60) return t('glasses_kickoff_hours_short', { n: Math.floor(offMin / 60) })
-    return t('glasses_kickoff_days_short', { n: Math.round(offMin / 60 / 24) })
-  }
+  if (!m.kickoffAt) return ''
+  const offMin = minutesUntilKickoff(m) ?? 0
   const tz = settingsStore.get().timezone
   const now = new Date()
   const kick = new Date(m.kickoffAt)
@@ -66,7 +63,7 @@ export function nextKickoffLabel(matches: Match[]): string {
   const tz = settingsStore.get().timezone
   const upcoming = matches
     .filter(m => m.state === 'scheduled' && m.kickoffAt)
-    .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
+    .sort((a, b) => (minutesUntilKickoff(a) ?? Infinity) - (minutesUntilKickoff(b) ?? Infinity))
   const m = upcoming[0]
   if (!m || !m.kickoffAt) return ''
   const kick = new Date(m.kickoffAt)
@@ -157,8 +154,8 @@ export function stageLabel(m: Match): string {
 export function statusLabel(m: Match): string {
   if (m.state === 'ft') return t('glasses_status_ft')
   if (m.state === 'scheduled') {
-    const off = m.kickoffOffsetMin
-    if (off < 60) return t('glasses_kickoff_in_minutes', { n: off })
+    const off = minutesUntilKickoff(m) ?? 0
+    if (off < 60) return t('glasses_kickoff_in_minutes', { n: Math.max(0, off) })
     const h = Math.floor(off / 60)
     if (h < 24) return t('glasses_kickoff_in_hours', { n: h })
     const d = Math.round(h / 24)
@@ -191,8 +188,8 @@ export function penaltyText(m: Match): string {
 export function statusVerbose(m: Match): string {
   if (m.state === 'ft') return t('glasses_status_full_time')
   if (m.state === 'scheduled') {
-    const off = m.kickoffOffsetMin
-    if (off < 60) return t('glasses_status_kickoff_min', { n: off })
+    const off = minutesUntilKickoff(m) ?? 0
+    if (off < 60) return t('glasses_status_kickoff_min', { n: Math.max(0, off) })
     const h = Math.floor(off / 60)
     if (h < 24) return t('glasses_status_kickoff_hour', { n: h })
     return t('glasses_status_kickoff_days', { n: Math.round(h / 24) })
@@ -248,7 +245,7 @@ function asciiName(s: string): string {
 export { asciiName }
 
 export function kickoffLabel(m: Match): string {
-  const off = m.kickoffOffsetMin
+  const off = minutesUntilKickoff(m) ?? -1
   if (off < 0) return ''
   if (off < 60) return t('glasses_kickoff_in_minutes', { n: off })
   /* Hour bucket is timezone-agnostic (same in PT/Beijing/etc.) so the

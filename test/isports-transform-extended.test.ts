@@ -6,7 +6,7 @@
  * decoder fan-out, and the dropped-row paths in transformMatch.
  *
  * Determinism: any test that depends on "now" stubs the clock with
- * vi.useFakeTimers so kickoffOffsetMin is stable across machines.
+ * vi.useFakeTimers so kickoffAt-derived assertions are stable across machines.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
@@ -307,7 +307,7 @@ describe('transformEvents — order + filtering', () => {
  * ──────────────────────────────────────────────────────────────────────── */
 
 describe('transformMatch — score + penalty extraction', () => {
-  /* Fixed "now" so kickoffOffsetMin is deterministic. */
+  /* Fixed "now" so kickoffAt-derived assertions are deterministic. */
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
@@ -699,8 +699,10 @@ describe('transformMatch — kickoff conversion', () => {
   })
   afterEach(() => { vi.useRealTimers() })
 
-  it('positive matchTime → kickoffAt ISO and kickoffOffsetMin from now', () => {
-    /* matchTime is Unix seconds. Pick 30 min from "now" = 2026-06-15T12:30:00Z. */
+  it('positive matchTime → kickoffAt ISO', () => {
+    /* matchTime is Unix seconds. Pick 30 min from "now" = 2026-06-15T12:30:00Z.
+     * No "offset" assertion — that field was removed; the offset is derived
+     * at render time via minutesUntilKickoff(kickoffAt). */
     const futureSec = Math.floor(new Date('2026-06-15T12:30:00Z').getTime() / 1000)
     const synth: ISportsMatch = {
       matchId: 'k-1',
@@ -712,10 +714,9 @@ describe('transformMatch — kickoff conversion', () => {
     }
     const out = transformMatch(synth)
     expect(out!.kickoffAt).toBe('2026-06-15T12:30:00.000Z')
-    expect(out!.kickoffOffsetMin).toBe(30)
   })
 
-  it('matchTime in the past gives negative offset', () => {
+  it('matchTime in the past → kickoffAt set to that past instant', () => {
     const pastSec = Math.floor(new Date('2026-06-15T11:00:00Z').getTime() / 1000)
     const synth: ISportsMatch = {
       matchId: 'k-2',
@@ -728,10 +729,9 @@ describe('transformMatch — kickoff conversion', () => {
     }
     const out = transformMatch(synth)
     expect(out!.kickoffAt).toBe('2026-06-15T11:00:00.000Z')
-    expect(out!.kickoffOffsetMin).toBe(-60)
   })
 
-  it('matchTime missing → no kickoffAt set, offset = 0', () => {
+  it('matchTime missing → kickoffAt undefined', () => {
     const synth: ISportsMatch = {
       matchId: 'k-3',
       status: 0,
@@ -741,7 +741,6 @@ describe('transformMatch — kickoff conversion', () => {
     }
     const out = transformMatch(synth)
     expect(out!.kickoffAt).toBeUndefined()
-    expect(out!.kickoffOffsetMin).toBe(0)
   })
 
   it('matchTime === 0 treated as "missing" (no kickoffAt)', () => {
@@ -755,7 +754,6 @@ describe('transformMatch — kickoff conversion', () => {
     }
     const out = transformMatch(synth)
     expect(out!.kickoffAt).toBeUndefined()
-    expect(out!.kickoffOffsetMin).toBe(0)
   })
 
   it('venue is carried through when location is set', () => {

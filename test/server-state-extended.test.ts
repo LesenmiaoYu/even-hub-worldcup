@@ -14,7 +14,6 @@ function seedMatch(overrides: Partial<Match> = {}): Match {
     awayPenalty: null,
     minute: null,
     state: 'live',
-    kickoffOffsetMin: 0,
     kickoffAt: '2026-06-15T18:00:00Z',
     venue: 'Test Stadium',
     events: [],

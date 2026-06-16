@@ -245,7 +245,6 @@ describe('hydrateFromFixtures — store interaction', () => {
       awayPenalty: null,
       minute: null,
       state: 'scheduled',
-      kickoffOffsetMin: 0,
       events: [],
     }])
     expect(store.get('PRE_EXISTING')).toBeDefined()
@@ -255,27 +254,3 @@ describe('hydrateFromFixtures — store interaction', () => {
   })
 })
 
-describe('hydrateFromFixtures — deterministic time-derived fields', () => {
-  /* kickoffOffsetMin is computed against Date.now() in transformMatch.
-   * Pin time so the offset is reproducible. */
-  beforeEach(() => {
-    vi.useFakeTimers()
-    /* WC group-stage rows in the fixture have matchTime around 1781204400
-     * (June 2026). Pick a fixed point a bit before, so offsets are
-     * positive for the early matches. */
-    vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('kickoffOffsetMin is a finite integer for every hydrated match', async () => {
-    const store = new MatchStore()
-    await hydrateFromFixtures(store)
-    for (const m of store.getAll()) {
-      expect(Number.isFinite(m.kickoffOffsetMin)).toBe(true)
-      expect(Number.isInteger(m.kickoffOffsetMin)).toBe(true)
-    }
-  })
-})

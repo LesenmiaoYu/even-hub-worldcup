@@ -10,6 +10,7 @@ import {
 } from '@evenrealities/even_hub_sdk'
 import type { Match } from '../types'
 import { store } from '../state/store'
+import { minutesUntilKickoff } from '../state/timeUntil'
 import {
   statusVerbose, scoreText, eventChip, listLeft, listRight, asciiName, hasShootout,
   kickoffGlassesLabel, isMatchToday, nextKickoffLabel,
@@ -124,7 +125,7 @@ export function pickFocusMatch(): Match | null {
   const recentShootout = [...past].reverse().find(m => m.homePenalty != null && m.awayPenalty != null)
   if (recentShootout) return recentShootout
   const up = store.getUpcoming()[0]
-  if (up && up.kickoffOffsetMin <= 24 * 60) return up
+  if (up && (minutesUntilKickoff(up) ?? Infinity) <= 24 * 60) return up
   return past[0] ?? null
 }
 
@@ -140,7 +141,6 @@ function makeBlankMatch(): Match {
     homeScore: null, awayScore: null,
     homePenalty: null, awayPenalty: null,
     minute: null, state: 'scheduled',
-    kickoffOffsetMin: 0,
     events: [],
   }
 }
@@ -331,7 +331,7 @@ function listMatches(): Match[] {
    * Sorted by soonest kickoff, cap at 5. */
   return store.getUpcoming()
     .filter(m => m.home != null && m.away != null && !!m.kickoffAt)
-    .sort((a, b) => a.kickoffOffsetMin - b.kickoffOffsetMin)
+    .sort((a, b) => (minutesUntilKickoff(a) ?? Infinity) - (minutesUntilKickoff(b) ?? Infinity))
     .slice(0, 5)
 }
 

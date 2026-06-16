@@ -29,7 +29,6 @@ function makeMatch(overrides: Partial<Match> = {}): Match {
     awayPenalty: null,
     minute: null,
     state: 'scheduled',
-    kickoffOffsetMin: 0,
     events: [],
     ...overrides,
   }
@@ -310,20 +309,17 @@ describe('eventChip across locales', () => {
 /* ── kickoffGlassesLabel: tz-aware day boundaries + locale ──────────────── */
 
 describe('kickoffGlassesLabel', () => {
-  it('falls back to short relative form when kickoffAt missing (legacy path)', () => {
-    expect(kickoffGlassesLabel(makeMatch({ kickoffOffsetMin: 30 }))).toBe('in 30m')
-    expect(kickoffGlassesLabel(makeMatch({ kickoffOffsetMin: 60 * 5 }))).toBe('5h')
-    expect(kickoffGlassesLabel(makeMatch({ kickoffOffsetMin: 60 * 49 }))).toBe('2d')
+  it('returns empty string when kickoffAt is missing (TBD knockout slot)', () => {
+    /* No kickoffAt = unscheduled / TBD. The glasses event log header
+     * should render nothing rather than guess "in 0m" from a missing field. */
+    expect(kickoffGlassesLabel(makeMatch({}))).toBe('')
   })
 
   it('"Today, in <n>m" when kickoff is same calendar day and offset < 60', () => {
     settingsStore.set({ timezone: 'UTC' })
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-15T12:00:00Z'))
-    const m = makeMatch({
-      kickoffOffsetMin: 30,
-      kickoffAt: '2026-06-15T12:30:00Z',
-    })
+    const m = makeMatch({ kickoffAt: '2026-06-15T12:30:00Z' })
     expect(kickoffGlassesLabel(m)).toBe('Today, in 30m')
   })
 
@@ -331,10 +327,7 @@ describe('kickoffGlassesLabel', () => {
     settingsStore.set({ timezone: 'UTC' })
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-15T01:00:00Z'))
-    const m = makeMatch({
-      kickoffOffsetMin: 60 * 5,
-      kickoffAt: '2026-06-15T06:00:00Z',
-    })
+    const m = makeMatch({ kickoffAt: '2026-06-15T06:00:00Z' })
     expect(kickoffGlassesLabel(m)).toBe('Today, in 5h')
   })
 
@@ -343,10 +336,7 @@ describe('kickoffGlassesLabel', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-15T22:00:00Z'))
     /* +4h kickoff → 2026-06-16 02:00 UTC → calendar day +1 in UTC. */
-    const m = makeMatch({
-      kickoffOffsetMin: 60 * 4,
-      kickoffAt: '2026-06-16T02:00:00Z',
-    })
+    const m = makeMatch({ kickoffAt: '2026-06-16T02:00:00Z' })
     /* Clock formatting uses Intl with hour12, e.g. "2AM". Exact string
      * depends on en-US output but the prefix is stable. */
     expect(kickoffGlassesLabel(m)).toMatch(/^Tomorrow, /)
@@ -359,10 +349,7 @@ describe('kickoffGlassesLabel', () => {
     settingsStore.set({ timezone: 'Asia/Shanghai' })
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-15T23:30:00Z'))
-    const m = makeMatch({
-      kickoffOffsetMin: Math.floor((new Date('2026-06-16T10:00:00Z').getTime() - new Date('2026-06-15T23:30:00Z').getTime()) / 60000),
-      kickoffAt: '2026-06-16T10:00:00Z',
-    })
+    const m = makeMatch({ kickoffAt: '2026-06-16T10:00:00Z' })
     /* Should be "Today, ..." in Shanghai (both dates land on 2026-06-16 SH). */
     expect(kickoffGlassesLabel(m).startsWith('Today,')).toBe(true)
   })

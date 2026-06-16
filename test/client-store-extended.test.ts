@@ -20,7 +20,6 @@ function blankMatch(overrides: Partial<Match>): Match {
     awayPenalty: null,
     minute: null,
     state: 'scheduled',
-    kickoffOffsetMin: 0,
     events: [],
     ...overrides,
   }

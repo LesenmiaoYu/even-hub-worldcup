@@ -145,7 +145,7 @@ describe('GET /events (SSE)', () => {
         homeScore: null, awayScore: null,
         homePenalty: null, awayPenalty: null,
         minute: null, state: 'scheduled',
-        kickoffOffsetMin: 60, events: [],
+        events: [],
       }])
       const reset = await sse.nextEvent(
         (ev, data) => ev === 'delta' && (data as Delta).type === 'reset',

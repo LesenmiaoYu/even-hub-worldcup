@@ -5,6 +5,7 @@ import { toast } from './toast'
 import { renderBracketSvg } from './bracketSvg'
 import { renderLocationStrip, mountLocationStrip, initSettings } from './settings'
 import { liveMinute } from '../g2/format'
+import { minutesUntilKickoff } from '../state/timeUntil'
 import { t } from '../i18n'
 import { teamNameFor } from '../i18n/teams'
 import { venueNameFor } from '../i18n/venues'
@@ -193,8 +194,13 @@ function flagImg(code: TeamCode | null | undefined, cls = 'flag'): string {
   return `<img class="${cls}" src="${team.flag}" alt="${alt}" />`
 }
 
-function formatOffset(min: number): string {
-  if (min < 0) return ''
+/* Renders a relative "in N min / N h / N d" countdown for a match.
+ * Reads kickoffAt every call — never trusts a stored offset. Returns ''
+ * for past-kickoff and unknown-kickoff cases so the caller's template
+ * collapses cleanly to nothing instead of "in -3 hours" or "in NaN min". */
+function formatKickoffCountdown(m: Match): string {
+  const min = minutesUntilKickoff(m)
+  if (min == null || min < 0) return ''
   if (min < 60) return t('ui_offset_minutes', { min })
   const h = Math.round(min / 60)
   if (h < 24) return t('ui_offset_hours', { h })
@@ -228,7 +234,7 @@ function matchRow(m: Match): string {
   } else {
     center = `
       <span class="score vs">${t('status_vs')}</span>
-      <span class="meta">${formatOffset(m.kickoffOffsetMin)}</span>
+      <span class="meta">${formatKickoffCountdown(m)}</span>
       <span class="stage">${m.stage}</span>
     `
   }
@@ -281,7 +287,7 @@ function renderDetail(): string {
   const status =
     m.state === 'live' ? `<span class="live-dot"></span>${liveMinute(m) ?? '-'}' &middot; ${m.stage}` :
     m.state === 'ft' ? `${pen ? t('status_ft_pen') : t('status_ft')} &middot; ${m.stage}` :
-    `${formatOffset(m.kickoffOffsetMin)} &middot; ${m.stage}`
+    `${formatKickoffCountdown(m)} &middot; ${m.stage}`
 
   const events = m.events.length === 0
     ? `<div class="empty">${t('detail_no_events')}</div>`
@@ -376,7 +382,7 @@ function stageInfo(): { title: string; sub: string } {
   } else if (live.length > 1) {
     sub = t('ui_many_matches_live', { count: live.length })
   } else if (upcoming.length > 0) {
-    sub = t('ui_next_kickoff', { offset: formatOffset(upcoming[0].kickoffOffsetMin) })
+    sub = t('ui_next_kickoff', { offset: formatKickoffCountdown(upcoming[0]) })
   } else {
     sub = t('ui_tournament_complete')
   }
