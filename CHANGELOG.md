@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.3 — 2026-06-17
+**Live → FT transitions no longer get stuck. Stored derived state audit complete.**
+- **Bug:** Matches stayed marked `live` for hours after the final whistle. Reported by users (ARG 3-0 ALG stuck at 126 min "live"). Root cause: iSports drops finished matches from `/livescores/changes` and we relied on it as the only state-transition source. The 12-hour `/schedule` re-hydrate was too slow to catch the divergence.
+- **Fix (poll the source of truth, don't guess):** `/schedule` re-poll cadence 12h → 5 min. New `MatchStore.reconcileFromSchedule()` merges authoritative state (state, scores, kickoffAt) from each poll WITHOUT wiping in-flight events/minute. Live→ft transitions now reconcile within 5 min worst case. The original sweep stays scheduled→live only; we explicitly do NOT fabricate ft from an elapsed-time threshold (that was a candidate fix, rejected on review).
+- **Client-side: `liveMinute()` no longer freezes when iSports goes silent.** Previously returned the stored `m.minute` blindly — if iSports stopped emitting at minute 82, the UI showed "82" forever. Now returns `max(stored, derived)` so the clock keeps ticking monotonically. iSports still wins when it knows about stoppage time the derived clock can't predict.
+- **Full audit of every stored-derived field in `Match` done — no remaining rot risks.** Documented in `feedback_no_stored_derived_state.md`.
+
 ## 2.1.2 — 2026-06-16
 **Kickoff countdown no longer freezes between server polls.**
 - **Bug:** the Upcoming list (and a few other surfaces) read kickoff-time-remaining from a server-side snapshot field that was only recomputed every 12 hours when `/schedule` re-hydrated. Result: "ESP vs CPV in 10 hours" badges that hadn't moved since the morning poll.

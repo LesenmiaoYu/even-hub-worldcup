@@ -190,23 +190,15 @@ export class MatchStore {
     }
   }
 
-  /* Promote any state:'scheduled' match whose kickoff is past to
-   * state:'live'. iSports occasionally fails to emit the scheduled→live
-   * transition (especially when /livescores/changes drops the match
-   * before its state flips), leaving the server holding state:'scheduled'
-   * for hours while users see "kicks off in -3h" on the L2 status
-   * line and "in Xh" on the matches list.
+  /* Promote past-kickoff scheduled matches to 'live' when iSports lags
+   * on the transition. ONLY direction we handle here — live→ft is NOT
+   * fabricated from elapsed-time guesses. For live→ft we re-poll
+   * /schedule (the authoritative source) every 5 min via
+   * reconcileFromSchedule below.
    *
-   * This is a server-side authoritative fix: every connected client
-   * (regardless of bundle version) gets the corrected state via a SSE
-   * reset delta. No client update required.
-   *
-   * 5-minute grace window before promoting — iSports' eventual emission
-   * latency is usually under a minute, so 5 min is comfortable.
-   *
-   * We do NOT auto-promote live→ft. Final score might be unset; risk
-   * of "FT 0-0" lies is real. The 12h /schedule re-hydrate catches the
-   * straggling live→ft transitions naturally. */
+   * 5-minute grace before promoting; iSports' eventual emission latency
+   * is usually under a minute. Emits a reset SSE delta per change so
+   * every client (any bundle version) gets the corrected state. */
   sweepStaleStates(): number {
     const now = Date.now()
     let promoted = 0
@@ -220,6 +212,54 @@ export class MatchStore {
       promoted++
     }
     return promoted
+  }
+
+  /* Reconcile authoritative state from a fresh /schedule fetch WITHOUT
+   * wiping in-flight data. Updates only state-class fields (state,
+   * homeScore, awayScore, homePenalty, awayPenalty, kickoffAt) on
+   * matches we already have. Leaves events[] and minute alone — those
+   * come from the /livescores and /events polls and would be lost if
+   * we replaceAll'd every 5 min.
+   *
+   * On a live→ft transition, fires resolveBracket so knockout slots
+   * propagate. Emits a reset SSE delta per changed match.
+   *
+   * Adds any matches we don't yet have (e.g. newly-resolved knockout
+   * slots iSports just published). Does NOT delete matches — that's
+   * /schedule's job, but only on boot via hydrateFromIsports. */
+  reconcileFromSchedule(fresh: Match[]): number {
+    let changed = 0
+    const existingById = new Map(this.matches.map(m => [m.id, m]))
+    for (const f of fresh) {
+      const existing = existingById.get(f.id)
+      if (!existing) {
+        this.matches.push(f)
+        this.emit({ type: 'reset', matchId: f.id, match: structuredClone(f) })
+        changed++
+        continue
+      }
+      const stateChanged = existing.state !== f.state
+      const scoreChanged =
+        existing.homeScore !== f.homeScore ||
+        existing.awayScore !== f.awayScore ||
+        existing.homePenalty !== f.homePenalty ||
+        existing.awayPenalty !== f.awayPenalty
+      const kickoffChanged = existing.kickoffAt !== f.kickoffAt
+      if (!stateChanged && !scoreChanged && !kickoffChanged) continue
+
+      const wasLive = existing.state === 'live'
+      const willBeFt = f.state === 'ft'
+      existing.state = f.state
+      existing.homeScore = f.homeScore
+      existing.awayScore = f.awayScore
+      existing.homePenalty = f.homePenalty
+      existing.awayPenalty = f.awayPenalty
+      if (f.kickoffAt) existing.kickoffAt = f.kickoffAt
+      if (wasLive && willBeFt) this.resolveBracket(existing.id)
+      this.emit({ type: 'reset', matchId: existing.id, match: structuredClone(existing) })
+      changed++
+    }
+    return changed
   }
 
   /* ---------- bracket ---------- */

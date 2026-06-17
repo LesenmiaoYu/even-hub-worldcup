@@ -34,7 +34,7 @@ import {
 } from './transform.ts'
 
 const LEAGUE_ID = '1572' // FIFA World Cup 2026
-const SCHEDULE_POLL_MS = 12 * 60 * 60 * 1000 // 12h
+const SCHEDULE_POLL_MS = 5 * 60 * 1000        // 5 min — authoritative state reconcile
 const LIVESCORES_POLL_MS = 5 * 1000           // 5s
 const EVENTS_POLL_MS = 60 * 1000              // 60s
 const MAX_BACKOFF_MS = 5 * 60 * 1000          // 5 min ceiling
@@ -69,8 +69,27 @@ export async function hydrateFromIsports(store: MatchStore): Promise<void> {
   )
 }
 
+/* Subsequent /schedule polls (after boot's hydrateFromIsports) reconcile
+ * authoritative state from iSports WITHOUT wiping in-flight events/minute.
+ * This is the path that catches live→ft transitions iSports failed to
+ * emit via /livescores/changes (their feed drops finished matches). */
 async function pollSchedule(store: MatchStore): Promise<void> {
-  await hydrateFromIsports(store)
+  const startedAt = Date.now()
+  const res = await getSchedule({ leagueId: LEAGUE_ID })
+  if (res.code !== 0) {
+    throw new Error(`iSports /schedule returned code=${res.code} message="${res.message}"`)
+  }
+  const rows = (res.data ?? []) as unknown as ISportsMatch[]
+  const fresh: Match[] = []
+  for (const row of rows) {
+    const m = transformMatch(row, { leagueId: LEAGUE_ID })
+    if (m) fresh.push(m)
+  }
+  const changed = store.reconcileFromSchedule(fresh)
+  const elapsed = Date.now() - startedAt
+  if (changed > 0) {
+    console.log(`${LOG} schedule reconcile: ${changed} state change(s) (${elapsed}ms)`)
+  }
 }
 
 async function pollLivescores(store: MatchStore): Promise<void> {

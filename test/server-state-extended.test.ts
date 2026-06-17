@@ -182,6 +182,9 @@ describe('MatchStore.sweepStaleStates', () => {
   })
 
   it('promotes only scheduled matches (skips live and ft)', () => {
+    /* Sweep is scheduled→live ONLY. Demoting live→ft is fabrication;
+     * authoritative ft transitions come from the /schedule reconcile
+     * poll (reconcileFromSchedule), not from elapsed-time guesses. */
     vi.setSystemTime(new Date('2026-06-15T19:00:00Z'))
     const store = new MatchStore()
     store.replaceAll([
@@ -196,6 +199,24 @@ describe('MatchStore.sweepStaleStates', () => {
     expect(store.get('a')!.state).toBe('live')
     expect(store.get('b')!.state).toBe('live')
     expect(store.get('c')!.state).toBe('ft')
+  })
+
+  it('does NOT demote a live match no matter how long it has been live (no fabrication)', () => {
+    /* Critical invariant: even at 6 hours past kickoff with a real score,
+     * the sweep must not fabricate ft. Authoritative ft comes from
+     * /schedule reconcile only. */
+    const kickoff = new Date('2026-06-15T18:00:00Z')
+    vi.setSystemTime(new Date(kickoff.getTime() + 6 * 60 * 60 * 1000))
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({
+        state: 'live',
+        kickoffAt: kickoff.toISOString(),
+        homeScore: 3, awayScore: 0,
+      }),
+    ])
+    expect(store.sweepStaleStates()).toBe(0)
+    expect(store.get('m1')!.state).toBe('live')
   })
 
   it('does not promote at 4:59 elapsed (inside grace window)', () => {
@@ -252,6 +273,120 @@ describe('MatchStore.sweepStaleStates', () => {
     for (const r of resets) {
       if (r.type === 'reset') expect(r.match.state).toBe('live')
     }
+  })
+})
+
+describe('MatchStore.reconcileFromSchedule', () => {
+  /* Authoritative state reconcile from a fresh /schedule fetch. Catches
+   * iSports lag on transitions (esp. live→ft) without wiping events. */
+
+  it('flips live→ft when iSports authoritatively reports ft, fires bracket resolve', () => {
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({
+        id: 'qf1', stage: 'QF', state: 'live',
+        homeScore: 2, awayScore: 1,
+        events: [{ id: 'e1', minute: 12, type: 'goal', side: 'home' } as MatchEvent],
+      }),
+      /* A downstream slot whose home is the winner of qf1 */
+      seedMatch({
+        id: 'sf1', stage: 'SF', state: 'scheduled',
+        home: null, away: null,
+        events: [],
+        resolvesFrom: { home: 'qf1' },
+      }),
+    ])
+    const seen = collectDeltas(store)
+
+    const changed = store.reconcileFromSchedule([
+      { ...seedMatch({ id: 'qf1', stage: 'QF' }), state: 'ft', homeScore: 2, awayScore: 1 },
+    ])
+
+    expect(changed).toBe(1)
+    expect(store.get('qf1')!.state).toBe('ft')
+    /* Events were preserved — reconcile does not nuke the events list. */
+    expect(store.get('qf1')!.events).toHaveLength(1)
+    /* Bracket was resolved — sf1.home is now the qf1 winner. */
+    expect(store.get('sf1')!.home).toBe('USA')  /* qf1 default home from seedMatch */
+    /* Reset delta for qf1 was emitted. */
+    const resets = seen.filter(d => d.type === 'reset' && (d as { matchId: string }).matchId === 'qf1')
+    expect(resets.length).toBeGreaterThan(0)
+  })
+
+  it('updates scores without changing state', () => {
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({ state: 'live', homeScore: 1, awayScore: 0 }),
+    ])
+    const seen = collectDeltas(store)
+
+    const changed = store.reconcileFromSchedule([
+      { ...seedMatch({}), state: 'live', homeScore: 3, awayScore: 0 },
+    ])
+
+    expect(changed).toBe(1)
+    expect(store.get('m1')!.homeScore).toBe(3)
+    expect(store.get('m1')!.state).toBe('live')
+    expect(seen.some(d => d.type === 'reset')).toBe(true)
+  })
+
+  it('returns 0 and emits nothing when nothing changed', () => {
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({ state: 'live', homeScore: 1, awayScore: 0 }),
+    ])
+    const seen = collectDeltas(store)
+
+    const changed = store.reconcileFromSchedule([
+      { ...seedMatch({}), state: 'live', homeScore: 1, awayScore: 0 },
+    ])
+
+    expect(changed).toBe(0)
+    expect(seen).toHaveLength(0)
+  })
+
+  it('preserves the events array even when state changes', () => {
+    /* Regression guard against replaceAll-style wipe. If reconcile ever
+     * goes back to nuking events, this test fails loudly. */
+    const events: MatchEvent[] = [
+      { id: 'e1', minute: 12, type: 'goal', side: 'home' } as MatchEvent,
+      { id: 'e2', minute: 67, type: 'yellow', side: 'away' } as MatchEvent,
+    ]
+    const store = new MatchStore()
+    store.replaceAll([seedMatch({ state: 'live', homeScore: 1, awayScore: 0, events })])
+
+    store.reconcileFromSchedule([
+      { ...seedMatch({}), state: 'ft', homeScore: 1, awayScore: 0 },
+    ])
+
+    expect(store.get('m1')!.events).toEqual(events)
+  })
+
+  it('adds a brand-new match (newly-resolved knockout slot)', () => {
+    const store = new MatchStore()
+    store.replaceAll([seedMatch({ id: 'a' })])
+
+    const changed = store.reconcileFromSchedule([
+      seedMatch({ id: 'b', stage: 'R16', home: 'BRA', away: 'POR' }),
+    ])
+
+    expect(changed).toBe(1)
+    expect(store.get('b')!.home).toBe('BRA')
+  })
+
+  it('does NOT delete matches missing from the fresh list', () => {
+    /* /schedule reconcile is additive + corrective only. It must never
+     * delete — deletion belongs to the boot hydrate path. */
+    const store = new MatchStore()
+    store.replaceAll([
+      seedMatch({ id: 'keep1' }),
+      seedMatch({ id: 'keep2' }),
+    ])
+
+    store.reconcileFromSchedule([seedMatch({ id: 'keep1' })])
+
+    expect(store.get('keep1')).toBeDefined()
+    expect(store.get('keep2')).toBeDefined()
   })
 })
 

@@ -114,17 +114,22 @@ function addDays(d: Date, n: number): Date {
  * = actual stoppage time + how long extra-time / pause we don't know
  * about). Once iSports does emit, the SSE delta overrides everything. */
 export function liveMinute(m: Match): number | null {
-  if (m.minute != null) return m.minute
   if (m.state !== 'live') return null
-  if (!m.kickoffAt) return null
+  if (!m.kickoffAt) return m.minute  /* no derived path possible */
   const elapsed = Math.floor((Date.now() - new Date(m.kickoffAt).getTime()) / 60000)
-  if (elapsed < 0) return null
-  if (elapsed < 45) return elapsed                /* 1st half */
-  if (elapsed < 60) return 45                     /* halftime window — pin at 45 until 2nd half resumes */
-  /* 2nd half / ET — subtract a 15min HT break from elapsed. Cap at 120
-   * (end of regulation extra time); penalty shootouts are flagged
-   * elsewhere via hasShootout(). */
-  return Math.min(elapsed - 15, 120)
+  if (elapsed < 0) return m.minute
+  /* Derived clock from elapsed time, modeling the HT pause. */
+  const derived =
+    elapsed < 45 ? elapsed :
+    elapsed < 60 ? 45 :                       /* HT window — pin at 45 */
+    Math.min(elapsed - 15, 120)               /* 2nd half / ET, cap at end-of-regulation-ET */
+  /* Take the larger of iSports' stored value and the derived clock.
+   * Monotonic-forward: when iSports stops emitting (common at the end
+   * of a match before they push the ft transition), the clock keeps
+   * advancing instead of freezing at the last reported minute. iSports
+   * wins when it knows about stoppage time we couldn't predict. */
+  if (m.minute == null) return derived
+  return Math.max(m.minute, derived)
 }
 function formatClock(d: Date, tz: string): string {
   try {

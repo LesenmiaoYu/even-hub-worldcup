@@ -118,22 +118,40 @@ describe('liveMinute', () => {
     expect(liveMinute(m)).toBe(120)
   })
 
-  it('server-provided minute always wins, even when state is not live', () => {
-    /* `m.minute != null` returns first, no state or kickoff check. */
+  it('returns null when state is not live, regardless of stored minute', () => {
+    /* Displaying a "live clock" for a scheduled or ft match is wrong. */
     const m = makeMatch({ state: 'scheduled', minute: 77 })
-    expect(liveMinute(m)).toBe(77)
+    expect(liveMinute(m)).toBeNull()
+    const m2 = makeMatch({ state: 'ft', minute: 90 })
+    expect(liveMinute(m2)).toBeNull()
   })
 
-  it('server-provided minute beats the derived elapsed clock', () => {
+  it('server-provided minute wins when ahead of the derived elapsed clock (stoppage time)', () => {
+    /* iSports knows about stoppage time the client cannot predict. When
+     * iSports says minute=88 and derived would only say 30, server wins. */
     const now = '2026-06-15T12:00:00Z'
     withFrozenNow(now)
-    /* Elapsed would derive 30, but the server says 88 — server wins. */
     const m = makeMatch({
       state: 'live',
       minute: 88,
       kickoffAt: kickoffMinutesAgo(now, 30),
     })
     expect(liveMinute(m)).toBe(88)
+  })
+
+  it('derived clock wins when iSports has gone silent (stored minute stale)', () => {
+    /* The ARG-ALG bug class: iSports stopped emitting at minute 82,
+     * real time advanced another 40 min, server still says minute=82.
+     * Without this fix the UI shows a frozen "82" forever. With
+     * max(stored, derived), the clock keeps ticking. */
+    const now = '2026-06-15T12:00:00Z'
+    withFrozenNow(now)
+    const m = makeMatch({
+      state: 'live',
+      minute: 82,
+      kickoffAt: kickoffMinutesAgo(now, 126),  /* 126 elapsed - 15 HT = 111 derived */
+    })
+    expect(liveMinute(m)).toBe(111)
   })
 
   it('treats server minute 0 as a real value (not null)', () => {
