@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.4 — 2026-06-17
+**Group Stage no longer shows "Extra Time"; minute display no longer overshoots iSports.**
+- **Bug (reported on glasses, Austria GS match):** displayed "EXTRA TIME 98 MIN" while actual play was at minute 88. Two distinct issues:
+  1. **v2.1.3 regression in `liveMinute()`:** the `max(stored, derived)` change introduced yesterday overrode iSports' authoritative minute with a wall-clock-derived guess when derived ran ahead (it usually does — it doesn't know about in-match pauses, halftime length, etc.). Reverted: iSports' stored minute is now always preferred when present. Derived is the fallback only when `m.minute` is null (the boot-time window before iSports sends the clock).
+  2. **Pre-existing GS labeling bug:** `statusVerbose` and `statusLabel` switched to "EXTRA TIME" / "ET" buckets when minute > 90, ignoring stage. Group Stage has NO extra time — anything past 90 is stoppage time still inside the 2nd half. Both functions are now stage-aware: GS stays on the "SECOND HALF" / "2H" label and clamps the displayed minute at 98 (90 + max plausible stoppage). Knockouts unchanged.
+- **Test class added:** stage-aware status invariants. Tests pin that GS never produces an EXTRA TIME label regardless of input minute; knockouts still do.
+- **Tradeoff on `liveMinute` revert:** when iSports stops emitting (the ARG-ALG case from yesterday), the minute briefly freezes at the last reported value until the 5-min `/schedule` reconcile flips state to ft. Frozen-but-correct beats ticking-but-wrong.
+
 ## 2.1.3 — 2026-06-17
 **Live → FT transitions no longer get stuck. Stored derived state audit complete.**
 - **Bug:** Matches stayed marked `live` for hours after the final whistle. Reported by users (ARG 3-0 ALG stuck at 126 min "live"). Root cause: iSports drops finished matches from `/livescores/changes` and we relied on it as the only state-transition source. The 12-hour `/schedule` re-hydrate was too slow to catch the divergence.

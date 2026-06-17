@@ -115,21 +115,22 @@ function addDays(d: Date, n: number): Date {
  * about). Once iSports does emit, the SSE delta overrides everything. */
 export function liveMinute(m: Match): number | null {
   if (m.state !== 'live') return null
-  if (!m.kickoffAt) return m.minute  /* no derived path possible */
+  /* Prefer iSports' stored minute when present — it's the authoritative
+   * source and accounts for in-match pauses (injury, VAR, etc.) that we
+   * cannot model from wall-clock elapsed alone. The derived clock is
+   * ONLY a fallback for the boot-time window where iSports has flipped
+   * the match to live but hasn't sent the clock yet, leaving m.minute
+   * null. If iSports stops emitting mid-match, m.minute freezes briefly
+   * — that's preferable to fabricating a wrong (over-shot) value via
+   * elapsed-time math. The state-level reconcile (5min /schedule poll)
+   * catches the live→ft transition and the frozen minute disappears. */
+  if (m.minute != null) return m.minute
+  if (!m.kickoffAt) return null
   const elapsed = Math.floor((Date.now() - new Date(m.kickoffAt).getTime()) / 60000)
-  if (elapsed < 0) return m.minute
-  /* Derived clock from elapsed time, modeling the HT pause. */
-  const derived =
-    elapsed < 45 ? elapsed :
-    elapsed < 60 ? 45 :                       /* HT window — pin at 45 */
-    Math.min(elapsed - 15, 120)               /* 2nd half / ET, cap at end-of-regulation-ET */
-  /* Take the larger of iSports' stored value and the derived clock.
-   * Monotonic-forward: when iSports stops emitting (common at the end
-   * of a match before they push the ft transition), the clock keeps
-   * advancing instead of freezing at the last reported minute. iSports
-   * wins when it knows about stoppage time we couldn't predict. */
-  if (m.minute == null) return derived
-  return Math.max(m.minute, derived)
+  if (elapsed < 0) return null
+  if (elapsed < 45) return elapsed                /* 1st half */
+  if (elapsed < 60) return 45                     /* HT window — pin at 45 */
+  return Math.min(elapsed - 15, 120)              /* 2nd half / ET, cap at end-of-regulation-ET */
 }
 function formatClock(d: Date, tz: string): string {
   try {
@@ -169,6 +170,10 @@ export function statusLabel(m: Match): string {
   const min = liveMinute(m) ?? 0
   if (min < 45) return t('glasses_status_1h', { min })
   if (min === 45 || min === 46) return t('glasses_status_ht')
+  /* Group Stage has NO extra time — anything past 90 is stoppage time
+   * still inside the 2nd half. Stay on the "2H" label and clamp the
+   * displayed minute to a sensible stoppage ceiling (90+8 max). */
+  if (m.stage === 'GS') return t('glasses_status_2h', { min: Math.min(min, 98) })
   if (min < 90) return t('glasses_status_2h', { min })
   if (min < 105) return t('glasses_status_et', { min })
   if (min < 120) return t('glasses_status_et2', { min })
@@ -202,6 +207,8 @@ export function statusVerbose(m: Match): string {
   const min = liveMinute(m) ?? 0
   if (min < 45) return t('glasses_status_first_half', { min })
   if (min === 45 || min === 46) return t('glasses_status_half_time')
+  /* GS has no ET — stoppage stays inside the 2nd-half label, clamped. */
+  if (m.stage === 'GS') return t('glasses_status_second_half', { min: Math.min(min, 98) })
   if (min < 90) return t('glasses_status_second_half', { min })
   if (min < 105) return t('glasses_status_extra_time', { min })
   if (min < 120) return t('glasses_status_extra_time_2', { min })

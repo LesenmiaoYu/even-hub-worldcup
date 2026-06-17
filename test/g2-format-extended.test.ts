@@ -3,6 +3,7 @@ import {
   liveMinute,
   asciiName,
   statusVerbose,
+  statusLabel,
   listLeft,
   listRight,
   eventChip,
@@ -126,32 +127,34 @@ describe('liveMinute', () => {
     expect(liveMinute(m2)).toBeNull()
   })
 
-  it('server-provided minute wins when ahead of the derived elapsed clock (stoppage time)', () => {
-    /* iSports knows about stoppage time the client cannot predict. When
-     * iSports says minute=88 and derived would only say 30, server wins. */
+  it('always trusts the stored minute when present — iSports is authoritative', () => {
+    /* iSports knows the truth: in-match pauses (injury, VAR, HT length)
+     * the wall-clock derived value cannot model. Never override iSports'
+     * value with a derived guess — that produced the v2.1.3 regression
+     * where Austria GS at minute 88 displayed as 98. */
     const now = '2026-06-15T12:00:00Z'
     withFrozenNow(now)
+    /* iSports says 88; if we derived blindly we'd get 113-15=98. Trust 88. */
     const m = makeMatch({
       state: 'live',
       minute: 88,
-      kickoffAt: kickoffMinutesAgo(now, 30),
+      kickoffAt: kickoffMinutesAgo(now, 113),
     })
     expect(liveMinute(m)).toBe(88)
   })
 
-  it('derived clock wins when iSports has gone silent (stored minute stale)', () => {
-    /* The ARG-ALG bug class: iSports stopped emitting at minute 82,
-     * real time advanced another 40 min, server still says minute=82.
-     * Without this fix the UI shows a frozen "82" forever. With
-     * max(stored, derived), the clock keeps ticking. */
+  it('frozen iSports value is preferred over derived overshoot (state reconcile catches the rest)', () => {
+    /* Tradeoff: when iSports stops emitting, the minute "freezes" briefly
+     * until /schedule reconcile flips state to ft (max 5 min). Frozen-
+     * but-correct beats ticking-but-wrong. */
     const now = '2026-06-15T12:00:00Z'
     withFrozenNow(now)
     const m = makeMatch({
       state: 'live',
       minute: 82,
-      kickoffAt: kickoffMinutesAgo(now, 126),  /* 126 elapsed - 15 HT = 111 derived */
+      kickoffAt: kickoffMinutesAgo(now, 126),
     })
-    expect(liveMinute(m)).toBe(111)
+    expect(liveMinute(m)).toBe(82)
   })
 
   it('treats server minute 0 as a real value (not null)', () => {
@@ -235,6 +238,37 @@ describe('statusVerbose: live minute paths', () => {
     /* Regression guard for the `?? 0` fallback in statusVerbose. */
     const m = makeMatch({ state: 'live' })
     expect(statusVerbose(m)).toBe('FIRST HALF  0 MIN')
+  })
+})
+
+describe('statusVerbose / statusLabel: Group Stage has NO extra time', () => {
+  /* User-reported bug 2026-06-17 (Austria GS match): displayed
+   * "Extra Time 98 min" while in stoppage of 2nd half. GS regulation
+   * is 90 min + stoppage only — extra time / penalties do not exist in
+   * group stage. Any minute past 90 in GS must stay labeled "2nd half"
+   * (or its short-chip equivalent), with the minute clamped to a
+   * realistic stoppage cap. */
+  it('GS at minute 95 (stoppage) → SECOND HALF, never EXTRA TIME', () => {
+    const m = makeMatch({ stage: 'GS', state: 'live', minute: 95 })
+    expect(statusVerbose(m)).toBe('SECOND HALF  95 MIN')
+    expect(statusVerbose(m)).not.toContain('EXTRA TIME')
+  })
+
+  it('GS minute clamped at 98 even if iSports somehow reports higher', () => {
+    const m = makeMatch({ stage: 'GS', state: 'live', minute: 130 })
+    expect(statusVerbose(m)).toBe('SECOND HALF  98 MIN')
+  })
+
+  it('GS short chip mirrors the rule — 2H not ET', () => {
+    const m = makeMatch({ stage: 'GS', state: 'live', minute: 95 })
+    expect(statusLabel(m)).toBe('2H  95')
+    expect(statusLabel(m)).not.toContain('ET')
+  })
+
+  it('Knockout stages STILL get EXTRA TIME label for min > 90 (unchanged)', () => {
+    /* Counter-test: the GS rule must not leak into R16/QF/SF/3rd/F. */
+    const m = makeMatch({ stage: 'QF', state: 'live', minute: 95 })
+    expect(statusVerbose(m)).toBe('EXTRA TIME  95 MIN')
   })
 })
 
