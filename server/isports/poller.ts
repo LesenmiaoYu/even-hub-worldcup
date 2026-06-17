@@ -34,7 +34,11 @@ import {
 } from './transform.ts'
 
 const LEAGUE_ID = '1572' // FIFA World Cup 2026
-const SCHEDULE_POLL_MS = 5 * 60 * 1000        // 5 min — authoritative state reconcile
+/* /schedule's iSports rate-limit floor is 90 sec/call. We poll at that
+ * floor for the tightest live→ft reconcile window the API allows. Going
+ * sub-90s requires polling /livescores instead and inferring transitions
+ * from dropout — not done here (yet). */
+const SCHEDULE_POLL_MS = 90 * 1000            // 90s — iSports rate-limit floor
 const LIVESCORES_POLL_MS = 5 * 1000           // 5s
 const EVENTS_POLL_MS = 60 * 1000              // 60s
 const MAX_BACKOFF_MS = 5 * 60 * 1000          // 5 min ceiling

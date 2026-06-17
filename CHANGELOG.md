@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.5 — 2026-06-17
+**Tighten the live→ft reconcile window from 5 min to 90 sec.**
+- `/schedule` poll cadence 5 min → 90 sec (the iSports rate-limit floor for this endpoint). Stuck-live matches now reconcile to ft within at most 90 seconds of iSports flipping their status. Server-only change; no `.ehpk` needed.
+
 ## 2.1.4 — 2026-06-17
 **Group Stage no longer shows "Extra Time"; minute display no longer overshoots iSports.**
 - **Bug (reported on glasses, Austria GS match):** displayed "EXTRA TIME 98 MIN" while actual play was at minute 88. Two distinct issues:

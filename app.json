@@ -2,7 +2,7 @@
   "package_id": "com.even.worldcup",
   "edition": "202601",
   "name": "World Cup",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "min_app_version": "2.0.0",
   "min_sdk_version": "0.0.10",
   "entrypoint": "index.html",
