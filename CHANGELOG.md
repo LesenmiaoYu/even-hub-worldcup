@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.6 — 2026-06-17
+**Sub-15-sec live→ft reconcile via /livescores dropout detector. 20% rate-limit safety margin on every poll.**
+- New `/livescores` full-snapshot poller (every 12s) acts purely as a wake-up signal: when a match that was `state='live'` in our store disappears from iSports' live set, we trigger an expedited `/schedule` fetch instead of waiting for the next 108s tick. `/schedule` remains the authoritative source — the dropout does NOT fabricate `state='ft'` directly.
+- Expedited fetch is gated by the same iSports rate-limit floor (won't fire if `/schedule` ran in the last 108s), so we never trip the limit.
+- Bumped every poll cadence by **+20% above iSports' rate-limit floor** so timing jitter can't accidentally hit the limiter and rain backoffs onto us: `/schedule` 90s→108s, `/livescores/changes` 5s→6s, new `/livescores` full 10s→12s. `/events` was already at the recommended cadence (60s/1min).
+- Net effect: live→ft staleness drops from 5min (v2.1.2) to ~90s (v2.1.5) to **~12s worst case** (v2.1.6).
+
 ## 2.1.5 — 2026-06-17
 **Tighten the live→ft reconcile window from 5 min to 90 sec.**
 - `/schedule` poll cadence 5 min → 90 sec (the iSports rate-limit floor for this endpoint). Stuck-live matches now reconcile to ft within at most 90 seconds of iSports flipping their status. Server-only change; no `.ehpk` needed.

@@ -23,6 +23,7 @@ import type { MatchStore } from '../state.ts'
 import type { Match } from '../types.ts'
 import {
   getSchedule,
+  getLivescores,
   getLivescoresChanges,
   getEvents,
 } from './client.ts'
@@ -34,14 +35,16 @@ import {
 } from './transform.ts'
 
 const LEAGUE_ID = '1572' // FIFA World Cup 2026
-/* /schedule's iSports rate-limit floor is 90 sec/call. We poll at that
- * floor for the tightest live→ft reconcile window the API allows. Going
- * sub-90s requires polling /livescores instead and inferring transitions
- * from dropout — not done here (yet). */
-const SCHEDULE_POLL_MS = 90 * 1000            // 90s — iSports rate-limit floor
-const LIVESCORES_POLL_MS = 5 * 1000           // 5s
-const EVENTS_POLL_MS = 60 * 1000              // 60s
-const MAX_BACKOFF_MS = 5 * 60 * 1000          // 5 min ceiling
+/* iSports rate-limit hard floors per their docs, plus a 20% safety
+ * margin so timing jitter never trips the rate limiter and rains 429s
+ * onto our backoff. The dropout detector triggers an expedited
+ * /schedule fetch that still respects the same floor via the
+ * expediteSchedule gate. Net live→ft staleness ≈ LIVESCORES_FULL_POLL_MS. */
+const SCHEDULE_POLL_MS = 108 * 1000           // 90s floor + 20% = 108s
+const LIVESCORES_POLL_MS = 6 * 1000           // 5s in use + 20% = 6s (/livescores/changes)
+const LIVESCORES_FULL_POLL_MS = 12 * 1000     // 10s desired + 20% = 12s (/livescores dropout)
+const EVENTS_POLL_MS = 60 * 1000              // 60s — already iSports' recommended cadence
+const MAX_BACKOFF_MS = 5 * 60 * 1000          // 5 min ceiling on failure backoff
 
 const LOG = '[isports]'
 
@@ -73,26 +76,87 @@ export async function hydrateFromIsports(store: MatchStore): Promise<void> {
   )
 }
 
+/* Coordination state for the /schedule path. Both the regular 90s loop
+ * AND the dropout-triggered expedite path go through pollSchedule, and
+ * we coalesce so concurrent triggers don't double-fetch or violate the
+ * iSports 90s rate-limit floor. */
+let lastScheduleAt = 0
+let scheduleInFlight: Promise<void> | null = null
+
 /* Subsequent /schedule polls (after boot's hydrateFromIsports) reconcile
  * authoritative state from iSports WITHOUT wiping in-flight events/minute.
  * This is the path that catches live→ft transitions iSports failed to
  * emit via /livescores/changes (their feed drops finished matches). */
 async function pollSchedule(store: MatchStore): Promise<void> {
-  const startedAt = Date.now()
-  const res = await getSchedule({ leagueId: LEAGUE_ID })
+  if (scheduleInFlight) return scheduleInFlight
+  scheduleInFlight = (async () => {
+    try {
+      lastScheduleAt = Date.now()
+      const startedAt = lastScheduleAt
+      const res = await getSchedule({ leagueId: LEAGUE_ID })
+      if (res.code !== 0) {
+        throw new Error(`iSports /schedule returned code=${res.code} message="${res.message}"`)
+      }
+      const rows = (res.data ?? []) as unknown as ISportsMatch[]
+      const fresh: Match[] = []
+      for (const row of rows) {
+        const m = transformMatch(row, { leagueId: LEAGUE_ID })
+        if (m) fresh.push(m)
+      }
+      const changed = store.reconcileFromSchedule(fresh)
+      const elapsed = Date.now() - startedAt
+      if (changed > 0) {
+        console.log(`${LOG} schedule reconcile: ${changed} state change(s) (${elapsed}ms)`)
+      }
+    } finally {
+      scheduleInFlight = null
+    }
+  })()
+  return scheduleInFlight
+}
+
+/* Trigger an extra /schedule fetch outside the regular 90s loop, but
+ * only if 90s have elapsed since the last fetch (iSports rate-limit
+ * floor). Called by the /livescores dropout detector when a match
+ * disappears from the live set — strong signal it transitioned to ft. */
+async function expediteSchedule(store: MatchStore): Promise<void> {
+  const elapsed = Date.now() - lastScheduleAt
+  if (elapsed < SCHEDULE_POLL_MS) {
+    /* Within the rate-limit floor. Next regular tick will catch it. */
+    return
+  }
+  await pollSchedule(store)
+}
+
+/* Poll /livescores (full snapshot of every currently-live match across
+ * every league) and detect dropouts: any match in our store with
+ * state='live' but absent from the fresh response has transitioned out
+ * of "live" — iSports drops finished matches from this endpoint at
+ * exactly the moment they hit FT. This is the cleanest signal we get,
+ * and it arrives faster than /livescores/changes can emit a state flip.
+ *
+ * The dropout itself is NOT used to fabricate state (no calling
+ * store.set state='ft'). It's a wake-up signal that fires an expedited
+ * /schedule fetch — /schedule remains the authoritative source. */
+async function pollLivescoresDropouts(store: MatchStore): Promise<void> {
+  const res = await getLivescores()
   if (res.code !== 0) {
-    throw new Error(`iSports /schedule returned code=${res.code} message="${res.message}"`)
+    throw new Error(`/livescores code=${res.code} message="${res.message}"`)
   }
-  const rows = (res.data ?? []) as unknown as ISportsMatch[]
-  const fresh: Match[] = []
-  for (const row of rows) {
-    const m = transformMatch(row, { leagueId: LEAGUE_ID })
-    if (m) fresh.push(m)
+  type IdRow = { matchId?: string }
+  const rows = (res.data ?? []) as unknown as IdRow[]
+  const freshLiveIds = new Set<string>()
+  for (const r of rows) {
+    if (r.matchId) freshLiveIds.add(r.matchId)
   }
-  const changed = store.reconcileFromSchedule(fresh)
-  const elapsed = Date.now() - startedAt
-  if (changed > 0) {
-    console.log(`${LOG} schedule reconcile: ${changed} state change(s) (${elapsed}ms)`)
+  const dropouts = store.getAll().filter(
+    m => m.state === 'live' && !freshLiveIds.has(m.id),
+  )
+  if (dropouts.length > 0) {
+    console.log(
+      `${LOG} livescores dropout: ${dropouts.length} match(es) out of live set (${dropouts.map(d => d.id).join(',')}) — expediting /schedule`,
+    )
+    await expediteSchedule(store)
   }
 }
 
@@ -210,13 +274,15 @@ export interface PollerHandle {
 export function startIsportsPollers(store: MatchStore): PollerHandle {
   console.log(
     `${LOG} starting pollers: ` +
-      `schedule=${SCHEDULE_POLL_MS}ms, livescores=${LIVESCORES_POLL_MS}ms, events=${EVENTS_POLL_MS}ms ` +
+      `schedule=${SCHEDULE_POLL_MS}ms, livescores-changes=${LIVESCORES_POLL_MS}ms, ` +
+      `livescores-full=${LIVESCORES_FULL_POLL_MS}ms, events=${EVENTS_POLL_MS}ms ` +
       `(backoff cap ${MAX_BACKOFF_MS}ms)`,
   )
 
   const loops = [
     new BackoffLoop('schedule', SCHEDULE_POLL_MS, () => pollSchedule(store)),
     new BackoffLoop('livescores', LIVESCORES_POLL_MS, () => pollLivescores(store)),
+    new BackoffLoop('livescores-full', LIVESCORES_FULL_POLL_MS, () => pollLivescoresDropouts(store)),
     new BackoffLoop('events', EVENTS_POLL_MS, () => pollEvents(store)),
   ]
   for (const loop of loops) loop.start()
